@@ -31,32 +31,40 @@ const MathTutorDiagnostic = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [showApiKeyInput, setShowApiKeyInput] = useState(true);
-  const [apiProvider, setApiProvider] = useState('openai');
+  const [apiProvider, setApiProvider] = useState('gemini');
+  const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
 
   const SYSTEM_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
 
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
+### **입력 데이터**
+- **문제**: ${currentProblem}
+- **학생 응답**: 아래 학생의 최신 응답
+- **컨텍스트**: ${messages.map(m => `${m.type}: ${m.content}`).join('\n')}
+
 ### **임무**
 1. **학생 상태 진단**:
-   - **문제 이해도**: 학생이 문제의 요구사항을 파악했는지? (low/medium/high)
-   - **개념 지식**: 관련 수학 개념을 이해하는 수준 (low/medium/high)
-   - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별 (none/calculation_error/logical_error/concept_confusion/approach_error)
-   - **학습 스타일**: 시각적/논리적/실험적/unknown 중 선호 추정
-   - **자신감 수준**: 학생의 답변에서 드러나는 태도 (low/medium/high)
+   - **문제 이해도**: 학생이 문제의 요구사항을 파악했는지? (낮음/중간/높음)
+   - **개념 지식**: 관련 수학 개념을 이해하는 수준 (낮음/중간/높음)
+   - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별
+   - **학습 스타일**: 시각적(다이어그램 선호), 논리적(공식 선호), 실험적(대입 시도) 중 선호 추정
+   - **자신감 수준**: 학생의 답변에서 드러나는 태도 (낮음: 좌절/망설임, 중간: 보통, 높음: 자신감)
 
-2. **폴리아 4단계 추천**: 진단 결과에 따라 적합한 폴리아 단계(1~4) 추천
+2. **폴리아 4단계 추천**:
+   - 진단 결과에 따라 적합한 폴리아 단계(1~4) 추천
+   - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
 
-3. **다음 질문 제안**: 학생의 상태에 맞춘 후속 질문 또는 힌트
+3. **다음 질문 제안**:
+   - 학생의 상태에 맞춘 후속 질문 또는 힌트
 
-### **출력 형식**
-먼저 학생에게 할 말을 자연스럽게 답변하고, 그 다음에 반드시 다음 JSON 형식으로 진단 결과를 제공하세요:
+먼저 학생에게 자연스럽게 답변하고, 그 다음에 반드시 다음 JSON 형식으로만 진단 결과를 제공하세요:
 
 \`\`\`json
 {
   "diagnosis": {
     "problem_understanding": "low/medium/high",
-    "concept_knowledge": "low/medium/high", 
+    "concept_knowledge": "low/medium/high",
     "error_pattern": "none/calculation_error/logical_error/concept_confusion/approach_error",
     "learning_style": "visual/logical/experimental/unknown",
     "confidence_level": "low/medium/high"
@@ -65,10 +73,39 @@ const MathTutorDiagnostic = () => {
   "stage_reason": "추천 이유 설명",
   "next_question": "학생에게 제안할 질문 또는 힌트"
 }
-\`\`\`
+\`\`\``;
 
-현재 문제: ${currentProblem}
-이전 대화 내역: ${messages.map(m => `${m.type}: ${m.content}`).join('\n')}`;
+  // Gemini API 호출
+  const callGemini = async (userMessage: string) => {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: `${SYSTEM_PROMPT}\n\n학생 응답: ${userMessage}` }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 1,
+          topK: 40,
+          topP: 1,
+          maxOutputTokens: 1000
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API 오류: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.candidates[0].content.parts[0].text;
+  };
 
   // OpenAI API 호출
   const callOpenAI = async (userMessage: string) => {
@@ -178,7 +215,9 @@ const MathTutorDiagnostic = () => {
 
       // API 호출
       let llmResponse;
-      if (apiProvider === 'openai') {
+      if (apiProvider === 'gemini') {
+        llmResponse = await callGemini(currentInput);
+      } else if (apiProvider === 'openai') {
         llmResponse = await callOpenAI(currentInput);
       } else {
         llmResponse = await callClaude(currentInput);
@@ -187,6 +226,11 @@ const MathTutorDiagnostic = () => {
       // 응답에서 LLM 답변과 JSON 분리
       const jsonData = extractJSON(llmResponse);
       const responseText = llmResponse.replace(/```json[\s\S]*?```/g, '').trim();
+
+      // 실시간 진단 결과 업데이트
+      if (jsonData) {
+        setCurrentDiagnostic(jsonData);
+      }
 
       const llmMessage: Message = {
         type: 'llm',
@@ -239,6 +283,7 @@ const MathTutorDiagnostic = () => {
 
   const clearChat = () => {
     setMessages([]);
+    setCurrentDiagnostic(null);
   };
 
   const getStageColor = (stage: string) => {
@@ -300,12 +345,13 @@ const MathTutorDiagnostic = () => {
                     onChange={(e) => setApiProvider(e.target.value)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm"
                   >
+                    <option value="gemini">Google Gemini 2.5 Pro</option>
                     <option value="openai">OpenAI (GPT-4)</option>
                     <option value="claude">Anthropic (Claude)</option>
                   </select>
                   <input
                     type="password"
-                    placeholder={`${apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키를 입력하세요`}
+                    placeholder={`${apiProvider === 'gemini' ? 'Google Gemini' : apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키를 입력하세요`}
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="border border-gray-300 rounded px-3 py-1 text-sm flex-1 max-w-md"
@@ -328,7 +374,7 @@ const MathTutorDiagnostic = () => {
           <div className="flex items-center">
             <Key className="h-4 w-4 text-green-400 mr-2" />
             <span className="text-sm text-green-700">
-              {apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키가 설정되었습니다.
+              {apiProvider === 'gemini' ? 'Google Gemini 2.5 Pro' : apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키가 설정되었습니다.
             </span>
           </div>
           <button
@@ -420,7 +466,7 @@ const MathTutorDiagnostic = () => {
                 onChange={(e) => setCurrentInput(e.target.value)}
                 onKeyDown={handleKeyPress}
                 placeholder="학생 메시지를 입력하세요..."
-                className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
                 rows={2}
                 disabled={isLoading}
               />
@@ -446,12 +492,44 @@ const MathTutorDiagnostic = () => {
           </div>
           
           <div className="p-4 h-96 overflow-y-auto">
+            {/* 실시간 진단 현황 */}
+            {currentDiagnostic && (
+              <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
+                <h3 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">
+                  ⚡ 현재 진단 상태
+                </h3>
+                <div className="mb-3">
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStageColor(currentDiagnostic.recommended_stage)}`}>
+                    단계 {currentDiagnostic.recommended_stage}: {getStageLabel(currentDiagnostic.recommended_stage)}
+                  </span>
+                </div>
+                
+                <div className="bg-white rounded p-3 mb-3">
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
+                    <div>개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
+                    <div>오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
+                    <div>자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded p-3">
+                  <h4 className="font-medium text-gray-900 mb-2">실시간 JSON</h4>
+                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
+{JSON.stringify(currentDiagnostic, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* 진단 히스토리 */}
             {messages.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
                 학생이 메시지를 보내면<br />진단 결과가 여기에 표시됩니다.
               </div>
             ) : (
               <div className="space-y-4">
+                <h3 className="font-medium text-gray-700 border-b pb-2">진단 히스토리</h3>
                 {messages
                   .filter(m => m.type === 'llm' && m.diagnostic)
                   .map((message, index) => (
