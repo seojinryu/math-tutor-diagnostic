@@ -49,29 +49,97 @@ const STAGES: Record<string, { color: string; label: string }> = {
   '4': { color: 'bg-purple-100 text-purple-800', label: '되돌아보기' },
 };
 
+
+
+function escapeNewlinesInsideStrings(src: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+
+    if (!inString) {
+      if (ch === '"') {
+        inString = true;
+        out += ch;
+      } else {
+        out += ch;
+      }
+      continue;
+    }
+
+    // inString === true
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '\n') {
+      out += '\\n';
+      continue;
+    }
+    if (ch === '\r') {
+      // CRLF → \n 로 통일
+      if (src[i + 1] === '\n') {
+        i++; // skip LF
+      }
+      out += '\\n';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+
+
+
+
 /** 모델이 내놓은 살짝 깨진 JSON도 최대한 복구해 파싱 */
 function parseJsonLoose(text: string): unknown {
   const trim = (s: string) => s.trim();
   const tryParse = (src: string) => JSON.parse(trim(src));
 
+  // 1) 그대로
   try { return tryParse(text); } catch {}
 
+  // 2) 펜스 제거
   const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/```\s*([\s\S]*?)\s*```/);
-  if (fenced?.[1]) {
-    try { return tryParse(fenced[1]); } catch {}
-  }
+  if (fenced?.[1]) { try { return tryParse(fenced[1]); } catch {} }
 
+  // 3) 첫 { ~ 마지막 }
   const i = text.indexOf('{'); const j = text.lastIndexOf('}');
   if (i !== -1 && j !== -1 && j > i) {
-    try { return tryParse(text.slice(i, j + 1)); } catch {}
+    const candidate = text.slice(i, j + 1);
+    try { return tryParse(candidate); } catch {}
+    // 3-보강) 문자열 내부 개행 이스케이프 후 재시도
+    try { return tryParse(escapeNewlinesInsideStrings(candidate)); } catch {}
   }
 
+  // 4) 스마트따옴표 정규화
   const normalizedQuotes = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
   try { return tryParse(normalizedQuotes); } catch {}
 
+  // 5) 트레일링 콤마 제거
   const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1');
-  return tryParse(noTrailingCommas);
+  try { return tryParse(noTrailingCommas); } catch {}
+
+  // 6) 최후: 문자열 내부 개행 이스케이프 후 재시도
+  const withEscapedNewlines = escapeNewlinesInsideStrings(noTrailingCommas);
+  return tryParse(withEscapedNewlines); // 실패 시 여기서 throw
 }
+
 
 /**********************
  * Minimal runtime validation (no external deps)
