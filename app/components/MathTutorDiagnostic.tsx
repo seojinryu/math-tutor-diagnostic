@@ -1,17 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Send,
-  MessageCircle,
-  Brain,
-  Settings,
-  BookOpen,
-  Key,
-  ChevronDown,
-  ChevronUp,
-  User,
-  SlidersHorizontal
-} from 'lucide-react';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2, User } from 'lucide-react';
 
 /**********************
  * Types
@@ -35,6 +24,7 @@ export interface Message {
   content: string;
   timestamp: string;
   diagnostic?: DiagnosticData | null;
+  rawResponse?: string;
   isError?: boolean;
   debug?: string;
 }
@@ -77,6 +67,7 @@ function escapeNewlinesInsideStrings(src: string): string {
       continue;
     }
 
+    // inString === true
     if (escaped) {
       out += ch;
       escaped = false;
@@ -97,8 +88,9 @@ function escapeNewlinesInsideStrings(src: string): string {
       continue;
     }
     if (ch === '\r') {
+      // CRLF → \n 로 통일
       if (src[i + 1] === '\n') {
-        i++;
+        i++; // skip LF
       }
       out += '\\n';
       continue;
@@ -113,35 +105,44 @@ function parseJsonLoose(text: string): unknown {
   const trim = (s: string) => s.trim();
   const tryParse = (src: string) => JSON.parse(trim(src));
 
+  // 1) 먼저 줄바꿈 이스케이프 시도
   try { return tryParse(escapeNewlinesInsideStrings(text)); } catch {}
 
+  // 2) 그대로
   try { return tryParse(text); } catch {}
 
+  // 3) 펜스 제거
   const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/```\s*([\s\S]*?)\s*```/);
-  if (fenced?.[1]) {
+  if (fenced?.[1]) { 
     try { return tryParse(escapeNewlinesInsideStrings(fenced[1])); } catch {}
-    try { return tryParse(fenced[1]); } catch {}
+    try { return tryParse(fenced[1]); } catch {} 
   }
 
+  // 4) 첫 { ~ 마지막 }
   const i = text.indexOf('{'); const j = text.lastIndexOf('}');
   if (i !== -1 && j !== -1 && j > i) {
     const candidate = text.slice(i, j + 1);
+    // 4-1) 문자열 내부 개행 이스케이프 먼저 시도
     try { return tryParse(escapeNewlinesInsideStrings(candidate)); } catch {}
+    // 4-2) 그대로도 시도
     try { return tryParse(candidate); } catch {}
   }
 
+  // 5) 스마트따옴표 정규화
   const normalizedQuotes = text.replace(/[""]/g, '"').replace(/['']/g, "'");
   try { return tryParse(escapeNewlinesInsideStrings(normalizedQuotes)); } catch {}
   try { return tryParse(normalizedQuotes); } catch {}
 
+  // 6) 트레일링 콤마 제거
   const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1');
   try { return tryParse(escapeNewlinesInsideStrings(noTrailingCommas)); } catch {}
   try { return tryParse(noTrailingCommas); } catch {}
 
+  // 7) 최후: 더 공격적인 정리
   const aggressive = noTrailingCommas
-    .replace(/[\r\n]+/g, '\\n')
-    .replace(/\t/g, '\\t');
-  return tryParse(aggressive);
+    .replace(/[\r\n]+/g, '\\n') // 모든 줄바꿈을 \n으로
+    .replace(/\t/g, '\\t'); // 탭도 이스케이프
+  return tryParse(aggressive); // 실패 시 여기서 throw
 }
 
 /**********************
@@ -175,9 +176,6 @@ interface ProviderArgs {
   problem: string;
   userMessage: string;
   context: string;
-  temperature: number;       // NEW
-  topP: number;              // NEW
-  maxOutputTokens: number;   // NEW
   signal?: AbortSignal;
 }
 
@@ -218,9 +216,21 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
   "next_question": "학생에게 제안할 질문 또는 힌트"
 }`;
 
-const ENFORCE_JSON_SUFFIX = `
+const SYSTEM_PROMPT_JSON_ONLY = `${SYSTEM_PROMPT_BASE}
+
 ---
 반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(\`\`\`), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.`;
+
+const buildContext = (msgs: Message[]) =>
+  msgs
+    .slice(-10)  // 최근 10개 메시지
+    .map((m) => {
+      if (m.type === 'student') return `학생: ${m.content}`;
+      if (m.type === 'llm' && !m.isError) return `선생님: ${m.content}`;
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
 
 /**********************
  * Gemini minimal types
@@ -234,17 +244,7 @@ interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates
 /**********************
  * Provider Call (Gemini)
  **********************/
-async function callGemini({
-  apiKey,
-  systemPrompt,
-  problem,
-  userMessage,
-  context,
-  temperature,
-  topP,
-  maxOutputTokens,
-  signal
-}: ProviderArgs): Promise<DiagnosticData> {
+async function callGemini({ apiKey, systemPrompt, problem, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
   const responseSchema = {
     type: "OBJECT",
     properties: {
@@ -266,12 +266,6 @@ async function callGemini({
     required: ["diagnosis","recommended_stage","stage_reason","next_question"]
   } as const;
 
-  // 안전 범위 클램프
-  const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-  const safeTemp = clamp01(Number.isFinite(temperature) ? temperature : 0);
-  const safeTopP = clamp01(Number.isFinite(topP) ? topP : 1);
-  const safeMaxTok = Math.max(64, Math.min(8192, Math.floor(maxOutputTokens || 1024)));
-
   const body = {
     systemInstruction: {
       role: "system",
@@ -290,9 +284,8 @@ async function callGemini({
       }
     ],
     generationConfig: {
-      temperature: safeTemp,
-      topP: safeTopP,
-      maxOutputTokens: safeMaxTok,
+      temperature: 0,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
       responseSchema
     }
@@ -349,16 +342,7 @@ async function callGemini({
 const MathTutorDiagnostic: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
-  const [currentProblem, setCurrentProblem] = useState(
-    `어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`
-  );
-
-  // NEW: 시스템 프롬프트/파라미터 UI 상태
-  const [systemPrompt, setSystemPrompt] = useState<string>(SYSTEM_PROMPT_BASE);
-  const [temperature, setTemperature] = useState<number>(0.2);
-  const [topP, setTopP] = useState<number>(0.9);
-  const [maxOutputTokens, setMaxOutputTokens] = useState<number>(1024);
-
+  const [currentProblem, setCurrentProblem] = useState(`어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
@@ -367,12 +351,7 @@ const MathTutorDiagnostic: React.FC = () => {
   const [showErrorDetail, setShowErrorDetail] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
-
-  // JSON만 강제하는 접미 문구를 항상 덧붙여 보냄
-  const systemPromptEffective = useMemo(
-    () => `${systemPrompt.trim()}\n${ENFORCE_JSON_SUFFIX}`,
-    [systemPrompt]
-  );
+  const SYSTEM_PROMPT_JSON = useMemo(() => SYSTEM_PROMPT_JSON_ONLY, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -412,30 +391,19 @@ const MathTutorDiagnostic: React.FC = () => {
     setCurrentDiagnostic(null);
   };
 
-  // 최근 대화 맥락
-  const buildContext = (msgs: Message[]) =>
-    msgs
-      .slice(-10)
-      .map((m) => (m.type === 'student' ? `학생: ${m.content}` : m.diagnostic ? `선생님(진단요약): 단계 ${m.diagnostic.recommended_stage}` : ''))
-      .filter(Boolean)
-      .join('\n');
-
   const contextText = useMemo(() => buildContext(messages), [messages]);
 
   const sendToGemini = useCallback(async (userMessage: string) => {
     const args: ProviderArgs = {
       apiKey,
-      systemPrompt: systemPromptEffective,
+      systemPrompt: SYSTEM_PROMPT_JSON,
       problem: currentProblem,
       userMessage,
       context: contextText,
-      temperature,
-      topP,
-      maxOutputTokens,
       signal: abortRef.current?.signal,
     };
     return callGemini(args);
-  }, [apiKey, systemPromptEffective, currentProblem, contextText, temperature, topP, maxOutputTokens]);
+  }, [apiKey, SYSTEM_PROMPT_JSON, currentProblem, contextText]);
 
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
@@ -459,17 +427,10 @@ const MathTutorDiagnostic: React.FC = () => {
     try {
       const diagnostic = await sendToGemini(currentInput);
       setCurrentDiagnostic(diagnostic);
-
-      // [권장 다음 질문 넣기] 기능 제거:
-      // 이전에는 diagnostic.next_question을 채팅에 뿌렸으나,
-      // 이제는 '진단 요약'만 간단히 남깁니다.
-      const llmSummary = `진단 갱신: 단계 ${diagnostic.recommended_stage} (${STAGES[diagnostic.recommended_stage]?.label ?? ''})
-이유: ${diagnostic.stage_reason}`;
-
       const llmMessage: Message = {
         id: uid(),
         type: 'llm',
-        content: llmSummary,
+        content: diagnostic.next_question, // 권장 다음 질문을 응답으로 표시
         diagnostic,
         timestamp: nowTime(),
       };
@@ -508,11 +469,9 @@ const MathTutorDiagnostic: React.FC = () => {
     );
   };
 
-  const resetSystemPrompt = () => setSystemPrompt(SYSTEM_PROMPT_BASE);
-
   return (
-    <div className="container max-w-screen-2xl mx-auto px-4 md:px-6 lg:px-10 bg-gray-50 min-h-screen">
-      <div className="py-6">
+    <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
+      <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템 (Gemini 전용)
@@ -520,21 +479,22 @@ const MathTutorDiagnostic: React.FC = () => {
         <p className="text-gray-600">학생-LLM 대화형 진단 시스템</p>
       </div>
 
-      {/* API 키 상태 */}
       {showApiKeyInput ? (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6 rounded">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-start gap-3">
-              <Key className="h-5 w-5 text-yellow-500 mt-1" />
-              <div>
-                <p className="text-sm text-yellow-800">LLM API를 사용하려면 Google Gemini API 키를 입력하세요.</p>
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <Key className="h-5 w-5 text-yellow-400" />
+              </div>
+              <div className="ml-3 flex-1">
+                <p className="text-sm text-yellow-700">LLM API를 사용하려면 Google Gemini API 키를 입력하세요.</p>
                 <div className="mt-3 flex items-center gap-3 flex-wrap">
                   <input
                     type="password"
                     placeholder="Google Gemini API 키"
                     value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="border border-gray-300 rounded px-3 py-1 text-sm min-w-[260px] w-full sm:w-auto"
+                    onChange={(e) => setApiKey(e.target.value.trim())}
+                    className="border border-gray-300 rounded px-3 py-1 text-sm flex-1 min-w-[260px] max-w-md"
                     aria-label="API 키 입력"
                   />
                   <label className="flex items-center gap-2 text-sm text-gray-700">
@@ -550,159 +510,44 @@ const MathTutorDiagnostic: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="bg-green-50 border-l-4 border-green-400 p-3 mb-6 rounded flex justify-between items-center flex-wrap gap-3">
+        <div className="bg-green-50 border-l-4 border-green-400 p-3 mb-6 flex justify-between items-center">
           <div className="flex items-center">
-            <Key className="h-4 w-4 text-green-500 mr-2" />
-            <span className="text-sm text-green-700">Google Gemini API 키가 설정되었습니다.</span>
+            <Key className="h-4 w-4 text-green-400 mr-2" />
+            <span className="text-sm text-green-700">
+              Google Gemini API 키가 설정되었습니다.
+            </span>
           </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} />
               이 브라우저에 저장하기
             </label>
-            <button onClick={clearApiKey} className="text-sm text-green-700 hover:text-green-900">
+            <button onClick={clearApiKey} className="text-sm text-green-600 hover:text-green-800">
               API 키 변경
             </button>
           </div>
         </div>
       )}
 
-      {/* 문제 입력 & 모델 파라미터 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        {/* 현재 문제 */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 border-b bg-gray-50 rounded-t-lg flex items-center gap-2">
-            <BookOpen className="text-green-600" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">현재 문제</h2>
-          </div>
-          <div className="p-4">
-            <textarea
-              value={currentProblem}
-              onChange={(e) => setCurrentProblem(e.target.value)}
-              className="w-full bg-white border rounded-lg p-3 text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-              rows={4}
-              aria-label="현재 문제 입력"
-            />
-          </div>
-        </div>
-
-        {/* 모델 파라미터 & 시스템 프롬프트 */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 border-b bg-gray-50 rounded-t-lg flex items-center gap-2">
-            <SlidersHorizontal className="text-gray-700" size={20} />
-            <h2 className="text-lg font-semibold text-gray-900">모델 파라미터 & 시스템 프롬프트</h2>
-          </div>
-
-          <div className="p-4 space-y-5">
-            {/* 파라미터 슬라이더 */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Temperature */}
-              <div className="border rounded-lg p-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Temperature</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={temperature}
-                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                  className="w-full"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={temperature}
-                    onChange={(e) => setTemperature(Number(e.target.value))}
-                    className="w-24 border rounded px-2 py-1 text-sm"
-                  />
-                  <span className="text-xs text-gray-500">0.00 ~ 1.00</span>
-                </div>
-              </div>
-
-              {/* topP */}
-              <div className="border rounded-lg p-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">topP</label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={topP}
-                  onChange={(e) => setTopP(parseFloat(e.target.value))}
-                  className="w-full"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={topP}
-                    onChange={(e) => setTopP(Number(e.target.value))}
-                    className="w-24 border rounded px-2 py-1 text-sm"
-                  />
-                  <span className="text-xs text-gray-500">0.00 ~ 1.00</span>
-                </div>
-              </div>
-
-              {/* maxOutputTokens */}
-              <div className="border rounded-lg p-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">maxOutputTokens</label>
-                <input
-                  type="range"
-                  min={64}
-                  max={8192}
-                  step={1}
-                  value={maxOutputTokens}
-                  onChange={(e) => setMaxOutputTokens(parseInt(e.target.value, 10))}
-                  className="w-full"
-                />
-                <div className="mt-2 flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={64}
-                    max={8192}
-                    step={1}
-                    value={maxOutputTokens}
-                    onChange={(e) => setMaxOutputTokens(parseInt(e.target.value || '1024', 10))}
-                    className="w-28 border rounded px-2 py-1 text-sm"
-                  />
-                  <span className="text-xs text-gray-500">64 ~ 8192</span>
-                </div>
-              </div>
-            </div>
-
-            {/* 시스템 프롬프트 에디터 */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700">시스템 프롬프트</label>
-                <button
-                  type="button"
-                  onClick={resetSystemPrompt}
-                  className="text-xs text-blue-600 hover:text-blue-800"
-                >
-                  기본값으로 복원
-                </button>
-              </div>
-              <textarea
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-                className="w-full bg-white border rounded-lg p-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={8}
-                aria-label="시스템 프롬프트 입력"
-              />
-              <p className="text-xs text-gray-500 mt-2">※ 출력은 JSON만 받도록 내부적으로 강제됩니다.</p>
-            </div>
-          </div>
+      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+          <BookOpen className="text-green-600" size={20} />
+          현재 문제
+        </h2>
+        <div className="bg-blue-50 p-4 rounded-lg">
+          <textarea
+            value={currentProblem}
+            onChange={(e) => setCurrentProblem(e.target.value)}
+            className="w-full bg-transparent border-none resize-none focus:outline-none text-gray-800 font-medium"
+            rows={3}
+            aria-label="현재 문제 입력"
+          />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Chat */}
-        <div className="bg-white rounded-lg shadow-sm border flex flex-col">
+        <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-4 border-b bg-gray-50 rounded-t-lg">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -715,16 +560,13 @@ const MathTutorDiagnostic: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-4 space-y-4 overflow-y-auto"
-               style={{ minHeight: '24rem', maxHeight: '70vh' }}>
-            {messages.length === 0 && (
-              <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>
-            )}
+          <div className="h-96 overflow-y-auto p-4 space-y-4">
+            {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.type === 'student' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[80%] rounded-lg p-3 ${
+                  className={`max-w-xs lg:max-w-sm rounded-lg p-3 ${
                     message.isError
                       ? 'bg-red-100 text-red-800 border border-red-200'
                       : message.type === 'student'
@@ -735,10 +577,9 @@ const MathTutorDiagnostic: React.FC = () => {
                 >
                   <div className="text-sm font-medium mb-1 flex items-center gap-1">
                     {message.type === 'student' && <User className="w-4 h-4" />}
-                    {message.type === 'student' ? '학생' : 'LLM 진단 알림'}
+                    {message.type === 'student' ? '학생' : 'LLM 권장 질문'}
                   </div>
                   <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-
                   {message.isError && (
                     <div className="mt-2 text-xs">
                       <button
@@ -773,7 +614,20 @@ const MathTutorDiagnostic: React.FC = () => {
           </div>
 
           <div className="p-4 border-t bg-gray-50">
-            {/* [권장 다음 질문 넣기] 기능 제거됨 */}
+            {/* 권장 다음 질문 버튼 */}
+            {currentDiagnostic?.next_question && (
+              <div className="mb-2 flex items-center gap-2">
+                <button
+                  className="px-3 py-1 rounded bg-indigo-600 text-white text-xs flex items-center gap-1 hover:bg-indigo-700"
+                  onClick={() => setCurrentInput((p) => (p ? p : currentDiagnostic.next_question))}
+                  title="권장 질문을 입력창에 채우기"
+                >
+                  <Wand2 className="w-4 h-4" /> 권장 다음 질문 넣기
+                </button>
+                <span className="text-xs text-gray-600 truncate">{currentDiagnostic.next_question}</span>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <textarea
                 value={currentInput}
@@ -799,7 +653,7 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
 
         {/* Diagnostic Panel */}
-        <div className="bg-white rounded-lg shadow-sm border flex flex-col">
+        <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-4 border-b bg-gray-50 rounded-t-lg">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Brain className="text-purple-600" size={20} />
@@ -807,7 +661,7 @@ const MathTutorDiagnostic: React.FC = () => {
             </h2>
           </div>
 
-          <div className="p-4 overflow-y-auto" style={{ minHeight: '24rem', maxHeight: '70vh' }}>
+          <div className="p-4 h-96 overflow-y-auto">
             {currentDiagnostic && (
               <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
                 <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
@@ -876,7 +730,6 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
       </div>
 
-      {/* 참고: 실행 정책 안내 섹션 (읽기용) */}
       <div className="mt-6 bg-white rounded-lg shadow-sm border p-4">
         <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <Settings className="text-gray-600" size={20} />
