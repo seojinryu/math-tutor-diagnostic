@@ -49,6 +49,48 @@ const STAGES: Record<string, { color: string; label: string }> = {
   '4': { color: 'bg-purple-100 text-purple-800', label: '되돌아보기' },
 };
 
+function parseJsonLoose(text: string): unknown {
+  const trim = (s: string) => s.trim();
+
+  const tryParse = (src: string) => {
+    const s = trim(src);
+    return JSON.parse(s);
+  };
+
+  // 1) 그대로 시도
+  try {
+    return tryParse(text);
+  } catch { /* fallthrough */ }
+
+  // 2) ```json ... ``` 펜스 제거
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/```\s*([\s\S]*?)\s*```/);
+  if (fenced?.[1]) {
+    try {
+      return tryParse(fenced[1]);
+    } catch { /* fallthrough */ }
+  }
+
+  // 3) 첫 { ~ 마지막 } 범위만 추출
+  const i = text.indexOf('{');
+  const j = text.lastIndexOf('}');
+  if (i !== -1 && j !== -1 && j > i) {
+    const candidate = text.slice(i, j + 1);
+    try {
+      return tryParse(candidate);
+    } catch { /* fallthrough */ }
+  }
+
+  // 4) 스마트따옴표 → 표준따옴표
+  const normalizedQuotes = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  try {
+    return tryParse(normalizedQuotes);
+  } catch { /* fallthrough */ }
+
+  // 5) 트레일링 콤마 제거
+  const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1');
+  return tryParse(noTrailingCommas); // 실패하면 여기서 throw
+}
+
 /**********************
  * Minimal runtime validation (no external deps)
  **********************/
@@ -249,7 +291,7 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
     throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
   }
 
-  const parsed = JSON.parse(text) as unknown;
+  const parsed = parseJsonLoose(text);
   validateDiagnostic(parsed);
   return parsed;
 }
@@ -283,7 +325,7 @@ async function callOpenAI({ apiKey, systemPrompt, problem, userMessage, context,
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const content = data?.choices?.[0]?.message?.content ?? '';
   if (!content) throw new Error('OpenAI 응답에 content가 없습니다.');
-  const parsed = JSON.parse(content) as unknown;
+  const parsed = parseJsonLoose(text);
   validateDiagnostic(parsed);
   return parsed;
 }
