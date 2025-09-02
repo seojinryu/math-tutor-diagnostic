@@ -1,12 +1,25 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Send, MessageCircle, Brain, FileText, Settings, BookOpen, Key } from 'lucide-react';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key } from 'lucide-react';
+
+interface DiagnosticData {
+  diagnosis: {
+    problem_understanding: string;
+    concept_knowledge: string;
+    error_pattern: string;
+    learning_style: string;
+    confidence_level: string;
+  };
+  recommended_stage: string;
+  stage_reason: string;
+  next_question: string;
+}
 
 interface Message {
   type: 'student' | 'llm';
   content: string;
   timestamp: string;
-  diagnostic?: any;
+  diagnostic?: DiagnosticData | null;
   rawResponse?: string;
   isError?: boolean;
 }
@@ -111,7 +124,7 @@ const MathTutorDiagnostic = () => {
   };
 
   // JSON 추출 함수
-  const extractJSON = (text: string) => {
+  const extractJSON = (text: string): DiagnosticData | null => {
     try {
       const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
@@ -405,7 +418,7 @@ const MathTutorDiagnostic = () => {
               <textarea
                 value={currentInput}
                 onChange={(e) => setCurrentInput(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyPress}
                 placeholder="학생 메시지를 입력하세요..."
                 className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={2}
@@ -445,8 +458,8 @@ const MathTutorDiagnostic = () => {
                     <div key={index} className="border rounded-lg p-4 bg-gray-50">
                       <div className="mb-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(message.diagnostic.recommended_stage)}`}>
-                            단계 {message.diagnostic.recommended_stage}: {getStageLabel(message.diagnostic.recommended_stage)}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(message.diagnostic!.recommended_stage)}`}>
+                            단계 {message.diagnostic!.recommended_stage}: {getStageLabel(message.diagnostic!.recommended_stage)}
                           </span>
                           <span className="text-xs text-gray-500">{message.timestamp}</span>
                         </div>
@@ -455,10 +468,10 @@ const MathTutorDiagnostic = () => {
                       <div className="bg-white rounded p-3 mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>문제 이해도: <span className="font-medium">{message.diagnostic.diagnosis.problem_understanding}</span></div>
-                          <div>개념 지식: <span className="font-medium">{message.diagnostic.diagnosis.concept_knowledge}</span></div>
-                          <div>오류 패턴: <span className="font-medium">{message.diagnostic.diagnosis.error_pattern}</span></div>
-                          <div>자신감: <span className="font-medium">{message.diagnostic.diagnosis.confidence_level}</span></div>
+                          <div>문제 이해도: <span className="font-medium">{message.diagnostic!.diagnosis.problem_understanding}</span></div>
+                          <div>개념 지식: <span className="font-medium">{message.diagnostic!.diagnosis.concept_knowledge}</span></div>
+                          <div>오류 패턴: <span className="font-medium">{message.diagnostic!.diagnosis.error_pattern}</span></div>
+                          <div>자신감: <span className="font-medium">{message.diagnostic!.diagnosis.confidence_level}</span></div>
                         </div>
                       </div>
 
