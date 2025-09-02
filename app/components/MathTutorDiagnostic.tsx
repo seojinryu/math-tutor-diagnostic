@@ -291,7 +291,7 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
     throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
   }
 
-  const parsed = parseJsonLoose(text);
+  const parsed = parseJsonLoose(content);
   validateDiagnostic(parsed);
   return parsed;
 }
@@ -325,7 +325,7 @@ async function callOpenAI({ apiKey, systemPrompt, problem, userMessage, context,
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const content = data?.choices?.[0]?.message?.content ?? '';
   if (!content) throw new Error('OpenAI 응답에 content가 없습니다.');
-  const parsed = parseJsonLoose(text);
+  const parsed = parseJsonLoose(content);
   validateDiagnostic(parsed);
   return parsed;
 }
