@@ -77,15 +77,20 @@ const MathTutorDiagnostic = () => {
 
   const nowTime = () => new Date().toLocaleTimeString();
 
-  const safeExtractTextFromGemini = (data: Record<string, any>): string => {
-    const blocked = data?.promptFeedback?.blockReason;
-    if (!data?.candidates?.length) {
+  const safeExtractTextFromGemini = (data: Record<string, unknown>): string => {
+    const promptFeedback = data?.promptFeedback as Record<string, unknown>;
+    const blocked = promptFeedback?.blockReason;
+    
+    const candidates = data?.candidates as Array<Record<string, unknown>>;
+    if (!candidates?.length) {
       if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
       throw new Error('응답에 candidates가 없습니다.');
     }
-    const parts = data.candidates[0]?.content?.parts ?? [];
+    
+    const content = candidates[0]?.content as Record<string, unknown>;
+    const parts = (content?.parts as Array<Record<string, unknown>>) ?? [];
     const text = parts
-      .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+      .map((p: Record<string, unknown>) => (typeof p?.text === 'string' ? p.text : ''))
       .join('')
       .trim();
     if (!text) throw new Error('응답에 텍스트가 없습니다.');
@@ -213,8 +218,9 @@ const MathTutorDiagnostic = () => {
       throw new Error(`Claude API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
     const data = await res.json();
-    const text = (data?.content ?? [])
-      .map((c: any) => (c?.type === 'text' ? c.text : ''))
+    const content = (data?.content ?? []) as Array<{ type: string; text: string }>;
+    const text = content
+      .map((c) => (c?.type === 'text' ? c.text : ''))
       .join('')
       .trim();
     return text;
@@ -255,10 +261,10 @@ const MathTutorDiagnostic = () => {
       };
       setMessages((prev) => [...prev, llmMessage]);
       setCurrentInput('');
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errorMessage: Message = {
         type: 'llm',
-        content: `오류가 발생했습니다: ${err?.message ?? '알 수 없는 오류'}`,
+        content: `오류가 발생했습니다: ${err instanceof Error ? err.message : '알 수 없는 오류'}`,
         timestamp: nowTime(),
         isError: true
       };
