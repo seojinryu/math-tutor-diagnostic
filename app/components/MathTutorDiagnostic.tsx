@@ -49,46 +49,28 @@ const STAGES: Record<string, { color: string; label: string }> = {
   '4': { color: 'bg-purple-100 text-purple-800', label: '되돌아보기' },
 };
 
+/** 모델이 내놓은 살짝 깨진 JSON도 최대한 복구해 파싱 */
 function parseJsonLoose(text: string): unknown {
   const trim = (s: string) => s.trim();
+  const tryParse = (src: string) => JSON.parse(trim(src));
 
-  const tryParse = (src: string) => {
-    const s = trim(src);
-    return JSON.parse(s);
-  };
+  try { return tryParse(text); } catch {}
 
-  // 1) 그대로 시도
-  try {
-    return tryParse(text);
-  } catch { /* fallthrough */ }
-
-  // 2) ```json ... ``` 펜스 제거
   const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/```\s*([\s\S]*?)\s*```/);
   if (fenced?.[1]) {
-    try {
-      return tryParse(fenced[1]);
-    } catch { /* fallthrough */ }
+    try { return tryParse(fenced[1]); } catch {}
   }
 
-  // 3) 첫 { ~ 마지막 } 범위만 추출
-  const i = text.indexOf('{');
-  const j = text.lastIndexOf('}');
+  const i = text.indexOf('{'); const j = text.lastIndexOf('}');
   if (i !== -1 && j !== -1 && j > i) {
-    const candidate = text.slice(i, j + 1);
-    try {
-      return tryParse(candidate);
-    } catch { /* fallthrough */ }
+    try { return tryParse(text.slice(i, j + 1)); } catch {}
   }
 
-  // 4) 스마트따옴표 → 표준따옴표
   const normalizedQuotes = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
-  try {
-    return tryParse(normalizedQuotes);
-  } catch { /* fallthrough */ }
+  try { return tryParse(normalizedQuotes); } catch {}
 
-  // 5) 트레일링 콤마 제거
   const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1');
-  return tryParse(noTrailingCommas); // 실패하면 여기서 throw
+  return tryParse(noTrailingCommas);
 }
 
 /**********************
@@ -114,11 +96,8 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
 }
 
 /**********************
- * Providers (unified signature)
+ * Providers (Gemini only)
  **********************/
-
-export type Provider = 'gemini' | 'openai' | 'claude';
-
 interface ProviderArgs {
   apiKey: string;
   systemPrompt: string;
@@ -187,7 +166,7 @@ interface GeminiCandidate { content?: { parts?: GeminiPart[] }; finishReason?: s
 interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates?: GeminiCandidate[] }
 
 /**********************
- * Provider Calls
+ * Provider Call (Gemini)
  **********************/
 async function callGemini({ apiKey, systemPrompt, problem, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
   const responseSchema = {
@@ -212,7 +191,6 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
   } as const;
 
   const body = {
-    // 시스템 프롬프트는 별도 필드로
     systemInstruction: {
       role: "system",
       parts: [{ text: systemPrompt }]
@@ -233,7 +211,6 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
       temperature: 0,
       maxOutputTokens: 1000,
       responseMimeType: "application/json",
-      // 💡 스키마 강제: JSON 외 다른 포맷 방지
       responseSchema
     }
   };
@@ -252,135 +229,36 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
     candidates?: Array<{ content?: { parts?: Array<{ text?: string, inlineData?: { data: string } }> } }>;
   };
 
-  // 안전성/차단 사유 먼저 체크
   const blocked = data?.promptFeedback?.blockReason;
-  if (blocked) {
-    throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
-  }
+  if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
 
-  // 1순위: text 파트
   const parts = data?.candidates?.[0]?.content?.parts ?? [];
   let text = "";
   for (const p of parts) {
-    if (typeof p?.text === "string" && p.text.trim()) {
-      text = p.text.trim();
-      break;
-    }
+    if (typeof p?.text === "string" && p.text.trim()) { text = p.text.trim(); break; }
   }
-
-  // 2순위: inlineData(base64) 파트
   if (!text) {
     for (const p of parts) {
       const b64 = p?.inlineData?.data;
       if (b64) {
         try {
           const decoded = typeof globalThis.atob === "function" ? globalThis.atob(b64) : "";
-          if (decoded.trim()) {
-            text = decoded.trim();
-            break;
-          }
-        } catch { /* ignore */ }
+          if (decoded.trim()) { text = decoded.trim(); break; }
+        } catch {}
       }
     }
   }
 
   if (!text) {
-    // 디버깅을 돕기 위해 finishReason 힌트 포함
-     const finish = data?.candidates?.[0]?.finishReason;
+    const finish = data?.candidates?.[0]?.finishReason;
     const hint = finish ? ` (finishReason: ${finish})` : "";
     throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
   }
 
-  const parsed = parseJsonLoose(content);
+  const parsed = parseJsonLoose(text);
   validateDiagnostic(parsed);
-  return parsed;
+  return parsed as DiagnosticData;
 }
-
-async function callOpenAI({ apiKey, systemPrompt, problem, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    signal,
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `### 실제 입력 데이터
-- 문제: ${problem}
-- 학생 응답: ${userMessage}
-- 컨텍스트: ${context}` },
-      ],
-      temperature: 0,
-      max_tokens: 1000,
-      response_format: { type: 'json_object' },
-    }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`OpenAI API 오류: ${res.status} ${res.statusText} - ${t}`);
-  }
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const content = data?.choices?.[0]?.message?.content ?? '';
-  if (!content) throw new Error('OpenAI 응답에 content가 없습니다.');
-  const parsed = parseJsonLoose(content);
-  validateDiagnostic(parsed);
-  return parsed;
-}
-
-async function callClaude({ apiKey, systemPrompt, problem, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    signal,
-    body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20240620',
-      system: systemPrompt,
-      max_tokens: 1000,
-      messages: [
-        {
-          role: 'user',
-          content:
-            `### 실제 입력 데이터
-` +
-            `- 문제: ${problem}
-` +
-            `- 학생 응답: ${userMessage}
-` +
-            `- 컨텍스트: ${context}`,
-        },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Claude API 오류: ${res.status} ${res.statusText} - ${t}`);
-  }
-  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-  const contentArr = data?.content ?? [];
-  const text = contentArr.map((c) => (c?.type === 'text' && c.text ? c.text : '')).join('').trim();
-  if (!text) throw new Error('Claude 응답에 텍스트가 없습니다.');
-
-  const i = text.indexOf('{');
-  const j = text.lastIndexOf('}');
-  if (i === -1 || j === -1 || j <= i) throw new Error('Claude 응답에서 JSON을 찾지 못했습니다.');
-  const parsed = JSON.parse(text.slice(i, j + 1)) as unknown;
-  validateDiagnostic(parsed);
-  return parsed;
-}
-
-const providerMap: Record<Provider, (a: ProviderArgs) => Promise<DiagnosticData>> = {
-  gemini: callGemini,
-  openai: callOpenAI,
-  claude: callClaude,
-};
 
 /**********************
  * Component
@@ -389,13 +267,12 @@ const MathTutorDiagnostic: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
   const [currentProblem, setCurrentProblem] = useState(
-  `어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?
+`어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?
 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`
 );
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
-  const [apiProvider, setApiProvider] = useState<Provider>('gemini');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(true);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
@@ -403,11 +280,10 @@ const MathTutorDiagnostic: React.FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const SYSTEM_PROMPT_JSON = useMemo(() => SYSTEM_PROMPT_JSON_ONLY, []);
 
-  // load stored key on provider change
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const storedLocal = localStorage.getItem(`${apiProvider}_api_key`);
-    const storedSession = sessionStorage.getItem(`${apiProvider}_api_key`);
+    const storedLocal = localStorage.getItem(`gemini_api_key`);
+    const storedSession = sessionStorage.getItem(`gemini_api_key`);
     const stored = storedLocal ?? storedSession ?? '';
     if (stored) {
       setApiKey(stored);
@@ -418,21 +294,21 @@ const MathTutorDiagnostic: React.FC = () => {
       setShowApiKeyInput(true);
       setRememberKey(false);
     }
-  }, [apiProvider]);
+  }, []);
 
   const saveApiKey = () => {
     if (!apiKey.trim() || typeof window === 'undefined') return;
-    localStorage.removeItem(`${apiProvider}_api_key`);
-    sessionStorage.removeItem(`${apiProvider}_api_key`);
-    if (rememberKey) localStorage.setItem(`${apiProvider}_api_key`, apiKey.trim());
-    else sessionStorage.setItem(`${apiProvider}_api_key`, apiKey.trim());
+    localStorage.removeItem(`gemini_api_key`);
+    sessionStorage.removeItem(`gemini_api_key`);
+    if (rememberKey) localStorage.setItem(`gemini_api_key`, apiKey.trim());
+    else sessionStorage.setItem(`gemini_api_key`, apiKey.trim());
     setShowApiKeyInput(false);
   };
 
   const clearApiKey = () => {
     if (typeof window === 'undefined') return;
-    localStorage.removeItem(`${apiProvider}_api_key`);
-    sessionStorage.removeItem(`${apiProvider}_api_key`);
+    localStorage.removeItem(`gemini_api_key`);
+    sessionStorage.removeItem(`gemini_api_key`);
     setApiKey('');
     setShowApiKeyInput(true);
   };
@@ -444,8 +320,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
   const contextText = useMemo(() => buildContext(messages), [messages]);
 
-  const sendToProvider = useCallback(async (userMessage: string) => {
-    const fn = providerMap[apiProvider];
+  const sendToGemini = useCallback(async (userMessage: string) => {
     const args: ProviderArgs = {
       apiKey,
       systemPrompt: SYSTEM_PROMPT_JSON,
@@ -454,8 +329,8 @@ const MathTutorDiagnostic: React.FC = () => {
       context: contextText,
       signal: abortRef.current?.signal,
     };
-    return fn(args);
-  }, [apiKey, apiProvider, SYSTEM_PROMPT_JSON, currentProblem, contextText]);
+    return callGemini(args);
+  }, [apiKey, SYSTEM_PROMPT_JSON, currentProblem, contextText]);
 
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
@@ -477,7 +352,7 @@ const MathTutorDiagnostic: React.FC = () => {
     setMessages((prev) => [...prev, studentMessage]);
 
     try {
-      const diagnostic = await sendToProvider(currentInput);
+      const diagnostic = await sendToGemini(currentInput);
       setCurrentDiagnostic(diagnostic);
       const llmMessage: Message = {
         id: uid(),
@@ -526,7 +401,7 @@ const MathTutorDiagnostic: React.FC = () => {
       <div className="mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
           <Brain className="text-blue-600" />
-          수학 교육용 LLM 진단 시스템 (Rewritten)
+          수학 교육용 LLM 진단 시스템 (Gemini 전용)
         </h1>
         <p className="text-gray-600">안정성(스키마 검증)·성능(컨텍스트 슬라이싱)·UX(권장 질문 버튼) 강화 버전</p>
       </div>
@@ -539,26 +414,11 @@ const MathTutorDiagnostic: React.FC = () => {
                 <Key className="h-5 w-5 text-yellow-400" />
               </div>
               <div className="ml-3 flex-1">
-                <p className="text-sm text-yellow-700">LLM API를 사용하려면 API 키를 입력하세요.</p>
+                <p className="text-sm text-yellow-700">LLM API를 사용하려면 Google Gemini API 키를 입력하세요.</p>
                 <div className="mt-3 flex items-center gap-3 flex-wrap">
-                  <select
-                    value={apiProvider}
-                    onChange={(e) => setApiProvider(e.target.value as Provider)}
-                    className="border border-gray-300 rounded px-2 py-1 text-sm"
-                  >
-                    <option value="gemini">Google Gemini 2.5 Pro</option>
-                    <option value="openai">OpenAI (GPT-4o)</option>
-                    <option value="claude">Anthropic (Claude 3.5)</option>
-                  </select>
                   <input
                     type="password"
-                    placeholder={
-                      apiProvider === 'gemini'
-                        ? 'Google Gemini API 키'
-                        : apiProvider === 'openai'
-                        ? 'OpenAI API 키'
-                        : 'Anthropic API 키'
-                    }
+                    placeholder="Google Gemini API 키"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value.trim())}
                     className="border border-gray-300 rounded px-3 py-1 text-sm flex-1 min-w-[260px] max-w-md"
@@ -581,7 +441,7 @@ const MathTutorDiagnostic: React.FC = () => {
           <div className="flex items-center">
             <Key className="h-4 w-4 text-green-400 mr-2" />
             <span className="text-sm text-green-700">
-              {apiProvider === 'gemini' ? 'Google Gemini 2.5 Pro' : apiProvider === 'openai' ? 'OpenAI (GPT-4o)' : 'Anthropic (Claude 3.5)'} API 키가 설정되었습니다.
+              Google Gemini API 키가 설정되었습니다.
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -672,7 +532,7 @@ const MathTutorDiagnostic: React.FC = () => {
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    <span className="text-xs ml-2">{apiProvider.toUpperCase()} 응답 생성 중…</span>
+                    <span className="text-xs ml-2">GEMINI 응답 생성 중…</span>
                   </div>
                 </div>
               </div>
@@ -735,18 +595,10 @@ const MathTutorDiagnostic: React.FC = () => {
 
                 <div className="bg-white rounded p-3 mb-3">
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span>
-                    </div>
-                    <div>
-                      개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span>
-                    </div>
-                    <div>
-                      오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span>
-                    </div>
-                    <div>
-                      자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span>
-                    </div>
+                    <div>문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
+                    <div>개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
+                    <div>오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
+                    <div>자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
                   </div>
                 </div>
 
@@ -785,18 +637,10 @@ const MathTutorDiagnostic: React.FC = () => {
                       <div className="bg-white rounded p-3 mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>
-                            문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span>
-                          </div>
-                          <div>
-                            개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span>
-                          </div>
-                          <div>
-                            오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span>
-                          </div>
-                          <div>
-                            자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span>
-                          </div>
+                          <div>문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
+                          <div>개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
+                          <div>오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
+                          <div>자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
                         </div>
                       </div>
 
@@ -822,9 +666,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
 [실행 정책]
 - 응답은 가능한 한 JSON만 받습니다.
-- Gemini는 responseMimeType=application/json 강제.
-- OpenAI는 response_format=json_object 사용.
-- Claude는 JSON 경계 추출 + 검증 수행.
+- Gemini는 responseMimeType=application/json + responseSchema 강제.
 - 수신 JSON은 런타임 검증(validateDiagnostic) 후 반영합니다.</pre>
         </div>
       </div>
