@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2 } from 'lucide-react';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2, User } from 'lucide-react';
 
 /**********************
  * Types
@@ -48,8 +48,6 @@ const STAGES: Record<string, { color: string; label: string }> = {
   '3': { color: 'bg-orange-100 text-orange-800', label: '계획 실행하기' },
   '4': { color: 'bg-purple-100 text-purple-800', label: '되돌아보기' },
 };
-
-
 
 function escapeNewlinesInsideStrings(src: string): string {
   let out = '';
@@ -146,7 +144,6 @@ function parseJsonLoose(text: string): unknown {
     .replace(/\t/g, '\\t'); // 탭도 이스케이프
   return tryParse(aggressive); // 실패 시 여기서 throw
 }
-
 
 /**********************
  * Minimal runtime validation (no external deps)
@@ -429,7 +426,7 @@ const MathTutorDiagnostic: React.FC = () => {
       const llmMessage: Message = {
         id: uid(),
         type: 'llm',
-        content: '',
+        content: diagnostic.next_question, // 권장 다음 질문을 응답으로 표시
         diagnostic,
         timestamp: nowTime(),
       };
@@ -475,7 +472,7 @@ const MathTutorDiagnostic: React.FC = () => {
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템 (Gemini 전용)
         </h1>
-        <p className="text-gray-600">안정성(스키마 검증)·성능(컨텍스트 슬라이싱)·UX(권장 질문 버튼) 강화 버전</p>
+        <p className="text-gray-600">학생-LLM 대화형 진단 시스템</p>
       </div>
 
       {showApiKeyInput ? (
@@ -574,10 +571,11 @@ const MathTutorDiagnostic: React.FC = () => {
                   }`}
                   aria-live={message.isError ? 'assertive' : 'polite'}
                 >
-                  <div className="text-sm font-medium mb-1">{message.type === 'student' ? '학생' : 'LLM'}</div>
-                  <div className="text-sm whitespace-pre-wrap">
-                    {message.content || (message.diagnostic ? '진단 JSON이 수신되었습니다.' : '')}
+                  <div className="text-sm font-medium mb-1 flex items-center gap-1">
+                    {message.type === 'student' && <User className="w-4 h-4" />}
+                    {message.type === 'student' ? '학생' : 'LLM 권장 질문'}
                   </div>
+                  <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                   {message.isError && (
                     <div className="mt-2 text-xs">
                       <button
@@ -662,26 +660,26 @@ const MathTutorDiagnostic: React.FC = () => {
           <div className="p-4 h-96 overflow-y-auto">
             {currentDiagnostic && (
               <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
-                <h3 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
+                <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
                 <div className="mb-3">{stagePill(currentDiagnostic.recommended_stage)}</div>
 
                 <div className="bg-white rounded p-3 mb-3">
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
-                    <div>개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
-                    <div>오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
-                    <div>자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
+                    <div className="text-black">문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
+                    <div className="text-black">개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
+                    <div className="text-black">오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
+                    <div className="text-black">자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
                   </div>
                 </div>
 
                 <div className="bg-white rounded p-3 mb-3">
-                  <h4 className="font-medium text-gray-900 mb-2">추천 이유</h4>
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{currentDiagnostic.stage_reason}</p>
+                  <h4 className="font-medium text-black mb-2">추천 이유</h4>
+                  <p className="text-sm text-black whitespace-pre-wrap">{currentDiagnostic.stage_reason}</p>
                 </div>
 
                 <div className="bg-white rounded p-3">
-                  <h4 className="font-medium text-gray-900 mb-2">실시간 JSON</h4>
-                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
+                  <h4 className="font-medium text-black mb-2">실시간 JSON</h4>
+                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto text-black">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
                 </div>
               </div>
             )}
@@ -694,7 +692,7 @@ const MathTutorDiagnostic: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <h3 className="font-medium text-gray-700 border-b pb-2">진단 히스토리</h3>
+                <h3 className="font-medium text-black border-b pb-2">진단 히스토리</h3>
                 {messages
                   .filter((m) => m.type === 'llm' && m.diagnostic)
                   .map((m) => (
@@ -707,18 +705,18 @@ const MathTutorDiagnostic: React.FC = () => {
                       </div>
 
                       <div className="bg-white rounded p-3 mb-3">
-                        <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
+                        <h4 className="font-medium text-black mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
-                          <div>개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
-                          <div>오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
-                          <div>자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
+                          <div className="text-black">문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
+                          <div className="text-black">개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
+                          <div className="text-black">오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
+                          <div className="text-black">자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
                         </div>
                       </div>
 
                       <div className="bg-white rounded p-3">
-                        <h4 className="font-medium text-gray-900 mb-2">JSON 출력</h4>
-                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">{JSON.stringify(m.diagnostic, null, 2)}</pre>
+                        <h4 className="font-medium text-black mb-2">JSON 출력</h4>
+                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto text-black">{JSON.stringify(m.diagnostic, null, 2)}</pre>
                       </div>
                     </div>
                   ))}
