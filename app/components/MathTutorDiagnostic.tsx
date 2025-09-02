@@ -2,21 +2,15 @@
 import React, { useEffect, useState } from 'react';
 import { Send, MessageCircle, Brain, Settings, BookOpen, Key } from 'lucide-react';
 
-/* ---------- Types ---------- */
-type Level = 'low' | 'medium' | 'high';
-type ErrPattern = 'none' | 'calculation_error' | 'logical_error' | 'concept_confusion' | 'approach_error';
-type Style = 'visual' | 'logical' | 'experimental' | 'unknown';
-type Stage = '1' | '2' | '3' | '4';
-
 interface DiagnosticData {
   diagnosis: {
-    problem_understanding: Level;
-    concept_knowledge: Level;
-    error_pattern: ErrPattern;
-    learning_style: Style;
-    confidence_level: Level;
+    problem_understanding: 'low' | 'medium' | 'high';
+    concept_knowledge: 'low' | 'medium' | 'high';
+    error_pattern: 'none' | 'calculation_error' | 'logical_error' | 'concept_confusion' | 'approach_error';
+    learning_style: 'visual' | 'logical' | 'experimental' | 'unknown';
+    confidence_level: 'low' | 'medium' | 'high';
   };
-  recommended_stage: Stage;
+  recommended_stage: '1' | '2' | '3' | '4';
   stage_reason: string;
   next_question: string;
 }
@@ -30,24 +24,6 @@ interface Message {
   isError?: boolean;
 }
 
-/* ----- Minimal API response shapes (no any) ----- */
-// Gemini
-interface GeminiPart { text?: string }
-interface GeminiContent { parts?: GeminiPart[] }
-interface GeminiCandidate { content?: GeminiContent }
-interface GeminiPromptFeedback { blockReason?: string }
-interface GeminiResponse {
-  candidates?: GeminiCandidate[];
-  promptFeedback?: GeminiPromptFeedback;
-}
-
-// Claude
-type AnthropicBlock =
-  | { type: 'text'; text: string }
-  | { type: string }; // ignore non-text blocks safely
-interface AnthropicResponse { content?: AnthropicBlock[] }
-
-/* ---------- Component ---------- */
 const MathTutorDiagnostic = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
@@ -60,12 +36,11 @@ const MathTutorDiagnostic = () => {
   const [apiProvider, setApiProvider] = useState<'gemini' | 'openai' | 'claude'>('gemini');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
 
-  /* ---------- System Prompt (사용자 제공본) ---------- */
   const SYSTEM_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
 ### **입력 데이터**
-- **문제**: {문제 텍스트, 예: "이차방정식 \\( x^2 - 5x + 6 = 0 \\)의 근을 구하세요."}
+- **문제**: {문제 텍스트, 예: "이차방정식 x^2 - 5x + 6 = 0의 근을 구하세요."}
 - **학생 응답**: {학생의 답변, 풀이 과정, 또는 질문, 예: "근이 뭔지 모르겠어요", "x = 2, 4", 또는 "(x-2)(x-4) = 0"}
 - **컨텍스트** (선택 사항): {이전 대화 이력, 학생의 학습 스타일(시각적/논리적/실험적), 과거 오류 패턴}
 
@@ -100,33 +75,33 @@ const MathTutorDiagnostic = () => {
 }
 \`\`\``;
 
-  /* ---------- Utils ---------- */
   const nowTime = () => new Date().toLocaleTimeString();
 
-  const safeExtractTextFromGemini = (data: GeminiResponse): string => {
+  const safeExtractTextFromGemini = (data: Record<string, any>): string => {
     const blocked = data?.promptFeedback?.blockReason;
-    const parts = data?.candidates?.[0]?.content?.parts;
-    if (!data?.candidates || !data.candidates.length) {
+    if (!data?.candidates?.length) {
       if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
       throw new Error('응답에 candidates가 없습니다.');
     }
-    const text = (parts ?? [])
-      .map((p: GeminiPart) => (typeof p.text === 'string' ? p.text : ''))
+    const parts = data.candidates[0]?.content?.parts ?? [];
+    const text = parts
+      .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
       .join('')
       .trim();
     if (!text) throw new Error('응답에 텍스트가 없습니다.');
     return text;
   };
 
-  // JSON 코드블록/비코드블록 모두 처리
   const extractJSON = (text: string): DiagnosticData | null => {
     try {
       const block = text.match(/```json\s*([\s\S]*?)\s*```/);
-      if (block) return JSON.parse(block[1]) as DiagnosticData;
+      if (block) return JSON.parse(block[1]);
+
       const i = text.indexOf('{');
       const j = text.lastIndexOf('}');
       if (i !== -1 && j !== -1 && j > i) {
-        return JSON.parse(text.slice(i, j + 1)) as DiagnosticData;
+        const maybe = text.slice(i, j + 1);
+        return JSON.parse(maybe);
       }
       return null;
     } catch {
@@ -134,7 +109,6 @@ const MathTutorDiagnostic = () => {
     }
   };
 
-  /* ---------- API Calls ---------- */
   const callGemini = async (userMessage: string) => {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
@@ -152,19 +126,19 @@ const MathTutorDiagnostic = () => {
                     `### 실제 입력 데이터\n` +
                     `- 문제: ${currentProblem}\n` +
                     `- 학생 응답: ${userMessage}\n` +
-                    `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
-                },
-              ],
-            },
+                    `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+                }
+              ]
+            }
           ],
           generationConfig: {
             temperature: 0,
             topK: 40,
             topP: 1,
             maxOutputTokens: 1000,
-            responseMimeType: 'text/plain',
-          },
-        }),
+            responseMimeType: 'text/plain'
+          }
+        })
       }
     );
 
@@ -172,7 +146,7 @@ const MathTutorDiagnostic = () => {
       const t = await res.text();
       throw new Error(`Gemini API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
-    const data = (await res.json()) as GeminiResponse;
+    const data = await res.json();
     return safeExtractTextFromGemini(data);
   };
 
@@ -181,7 +155,7 @@ const MathTutorDiagnostic = () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
@@ -193,21 +167,19 @@ const MathTutorDiagnostic = () => {
               `### 실제 입력 데이터\n` +
               `- 문제: ${currentProblem}\n` +
               `- 학생 응답: ${userMessage}\n` +
-              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
-          },
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+          }
         ],
         temperature: 0,
-        max_tokens: 1000,
-      }),
+        max_tokens: 1000
+      })
     });
 
     if (!res.ok) {
       const t = await res.text();
       throw new Error(`OpenAI API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
-    const data: {
-      choices?: { message?: { content?: string } }[];
-    } = await res.json();
+    const data = await res.json();
     return data?.choices?.[0]?.message?.content ?? '';
   };
 
@@ -217,7 +189,7 @@ const MathTutorDiagnostic = () => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
         model: 'claude-3-5-sonnet-20240620',
@@ -230,25 +202,24 @@ const MathTutorDiagnostic = () => {
               `### 실제 입력 데이터\n` +
               `- 문제: ${currentProblem}\n` +
               `- 학생 응답: ${userMessage}\n` +
-              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
-          },
-        ],
-      }),
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+          }
+        ]
+      })
     });
 
     if (!res.ok) {
       const t = await res.text();
       throw new Error(`Claude API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
-    const data = (await res.json()) as AnthropicResponse;
-    const text = (data.content ?? [])
-      .map((blk) => (blk.type === 'text' ? (blk as { type: 'text'; text: string }).text : ''))
+    const data = await res.json();
+    const text = (data?.content ?? [])
+      .map((c: any) => (c?.type === 'text' ? c.text : ''))
       .join('')
       .trim();
     return text;
   };
 
-  /* ---------- Handlers ---------- */
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
     if (!apiKey) {
@@ -260,7 +231,7 @@ const MathTutorDiagnostic = () => {
     const studentMessage: Message = {
       type: 'student',
       content: currentInput,
-      timestamp: nowTime(),
+      timestamp: nowTime()
     };
     setMessages((prev) => [...prev, studentMessage]);
 
@@ -280,17 +251,16 @@ const MathTutorDiagnostic = () => {
         content: responseText || '(응답이 JSON만 포함되어 있습니다)',
         diagnostic: jsonData,
         timestamp: nowTime(),
-        rawResponse: llmResponse,
+        rawResponse: llmResponse
       };
       setMessages((prev) => [...prev, llmMessage]);
       setCurrentInput('');
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '알 수 없는 오류';
+    } catch (err: any) {
       const errorMessage: Message = {
         type: 'llm',
-        content: `오류가 발생했습니다: ${msg}`,
+        content: `오류가 발생했습니다: ${err?.message ?? '알 수 없는 오류'}`,
         timestamp: nowTime(),
-        isError: true,
+        isError: true
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -330,7 +300,7 @@ const MathTutorDiagnostic = () => {
       '1': 'bg-blue-100 text-blue-800',
       '2': 'bg-green-100 text-green-800',
       '3': 'bg-orange-100 text-orange-800',
-      '4': 'bg-purple-100 text-purple-800',
+      '4': 'bg-purple-100 text-purple-800'
     };
     return colors[stage] || 'bg-gray-100 text-gray-800';
   };
@@ -340,7 +310,7 @@ const MathTutorDiagnostic = () => {
       '1': '문제 이해하기',
       '2': '계획 세우기',
       '3': '계획 실행하기',
-      '4': '되돌아보기',
+      '4': '되돌아보기'
     };
     return labels[stage] || '단계 미정';
   };
@@ -357,7 +327,6 @@ const MathTutorDiagnostic = () => {
     }
   }, [apiProvider]);
 
-  /* ---------- UI ---------- */
   return (
     <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
       <div className="mb-6">
@@ -365,10 +334,11 @@ const MathTutorDiagnostic = () => {
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템
         </h1>
-        <p className="text-gray-600">폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.</p>
+        <p className="text-gray-600">
+          폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.
+        </p>
       </div>
 
-      {/* API 키 설정 */}
       {showApiKeyInput ? (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
           <div className="flex items-center justify-between">
@@ -428,7 +398,6 @@ const MathTutorDiagnostic = () => {
         </div>
       )}
 
-      {/* 현재 문제 */}
       <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <BookOpen className="text-green-600" size={20} />
@@ -445,7 +414,6 @@ const MathTutorDiagnostic = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* 채팅 영역 */}
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-4 border-b bg-gray-50 rounded-t-lg">
             <div className="flex justify-between items-center">
@@ -493,7 +461,6 @@ const MathTutorDiagnostic = () => {
             )}
           </div>
 
-          {/* 입력 영역 */}
           <div className="p-4 border-t bg-gray-50">
             <div className="flex gap-2">
               <textarea
@@ -517,7 +484,6 @@ const MathTutorDiagnostic = () => {
           </div>
         </div>
 
-        {/* 진단 결과 영역 */}
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-4 border-b bg-gray-50 rounded-t-lg">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -538,10 +504,18 @@ const MathTutorDiagnostic = () => {
 
                 <div className="bg-white rounded p-3 mb-3">
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
-                    <div>개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
-                    <div>오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
-                    <div>자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
+                    <div>
+                      문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span>
+                    </div>
+                    <div>
+                      개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span>
+                    </div>
+                    <div>
+                      오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span>
+                    </div>
+                    <div>
+                      자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -554,7 +528,6 @@ const MathTutorDiagnostic = () => {
               </div>
             )}
 
-            {/* 히스토리 */}
             {messages.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
                 학생이 메시지를 보내면
@@ -570,8 +543,8 @@ const MathTutorDiagnostic = () => {
                     <div key={idx} className="border rounded-lg p-4 bg-gray-50">
                       <div className="mb-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(m!.diagnostic!.recommended_stage)}`}>
-                            단계 {m!.diagnostic!.recommended_stage}: {getStageLabel(m!.diagnostic!.recommended_stage)}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(m.diagnostic!.recommended_stage)}`}>
+                            단계 {m.diagnostic!.recommended_stage}: {getStageLabel(m.diagnostic!.recommended_stage)}
                           </span>
                           <span className="text-xs text-gray-500">{m.timestamp}</span>
                         </div>
@@ -580,10 +553,10 @@ const MathTutorDiagnostic = () => {
                       <div className="bg-white rounded p-3 mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>문제 이해도: <span className="font-medium">{m!.diagnostic!.diagnosis.problem_understanding}</span></div>
-                          <div>개념 지식: <span className="font-medium">{m!.diagnostic!.diagnosis.concept_knowledge}</span></div>
-                          <div>오류 패턴: <span className="font-medium">{m!.diagnostic!.diagnosis.error_pattern}</span></div>
-                          <div>자신감: <span className="font-medium">{m!.diagnostic!.diagnosis.confidence_level}</span></div>
+                          <div>문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
+                          <div>개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
+                          <div>오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
+                          <div>자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
                         </div>
                       </div>
 
@@ -601,7 +574,6 @@ const MathTutorDiagnostic = () => {
         </div>
       </div>
 
-      {/* 시스템 정보 */}
       <div className="mt-6 bg-white rounded-lg shadow-sm border p-4">
         <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <Settings className="text-gray-600" size={20} />
