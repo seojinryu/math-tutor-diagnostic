@@ -102,42 +102,49 @@ function escapeNewlinesInsideStrings(src: string): string {
   return out;
 }
 
-
-
-
-
 /** 모델이 내놓은 살짝 깨진 JSON도 최대한 복구해 파싱 */
 function parseJsonLoose(text: string): unknown {
   const trim = (s: string) => s.trim();
   const tryParse = (src: string) => JSON.parse(trim(src));
 
-  // 1) 그대로
+  // 1) 먼저 줄바꿈 이스케이프 시도
+  try { return tryParse(escapeNewlinesInsideStrings(text)); } catch {}
+
+  // 2) 그대로
   try { return tryParse(text); } catch {}
 
-  // 2) 펜스 제거
+  // 3) 펜스 제거
   const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i) || text.match(/```\s*([\s\S]*?)\s*```/);
-  if (fenced?.[1]) { try { return tryParse(fenced[1]); } catch {} }
+  if (fenced?.[1]) { 
+    try { return tryParse(escapeNewlinesInsideStrings(fenced[1])); } catch {}
+    try { return tryParse(fenced[1]); } catch {} 
+  }
 
-  // 3) 첫 { ~ 마지막 }
+  // 4) 첫 { ~ 마지막 }
   const i = text.indexOf('{'); const j = text.lastIndexOf('}');
   if (i !== -1 && j !== -1 && j > i) {
     const candidate = text.slice(i, j + 1);
-    try { return tryParse(candidate); } catch {}
-    // 3-보강) 문자열 내부 개행 이스케이프 후 재시도
+    // 4-1) 문자열 내부 개행 이스케이프 먼저 시도
     try { return tryParse(escapeNewlinesInsideStrings(candidate)); } catch {}
+    // 4-2) 그대로도 시도
+    try { return tryParse(candidate); } catch {}
   }
 
-  // 4) 스마트따옴표 정규화
-  const normalizedQuotes = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  // 5) 스마트따옴표 정규화
+  const normalizedQuotes = text.replace(/[""]/g, '"').replace(/['']/g, "'");
+  try { return tryParse(escapeNewlinesInsideStrings(normalizedQuotes)); } catch {}
   try { return tryParse(normalizedQuotes); } catch {}
 
-  // 5) 트레일링 콤마 제거
+  // 6) 트레일링 콤마 제거
   const noTrailingCommas = normalizedQuotes.replace(/,\s*([}\]])/g, '$1');
+  try { return tryParse(escapeNewlinesInsideStrings(noTrailingCommas)); } catch {}
   try { return tryParse(noTrailingCommas); } catch {}
 
-  // 6) 최후: 문자열 내부 개행 이스케이프 후 재시도
-  const withEscapedNewlines = escapeNewlinesInsideStrings(noTrailingCommas);
-  return tryParse(withEscapedNewlines); // 실패 시 여기서 throw
+  // 7) 최후: 더 공격적인 정리
+  const aggressive = noTrailingCommas
+    .replace(/[\r\n]+/g, '\\n') // 모든 줄바꿈을 \n으로
+    .replace(/\t/g, '\\t'); // 탭도 이스케이프
+  return tryParse(aggressive); // 실패 시 여기서 throw
 }
 
 
@@ -334,10 +341,7 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
 const MathTutorDiagnostic: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
-  const [currentProblem, setCurrentProblem] = useState(
-`어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?
-객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`
-);
+  const [currentProblem, setCurrentProblem] = useState(`어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
