@@ -244,7 +244,7 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
 
   if (!text) {
     // 디버깅을 돕기 위해 finishReason 힌트 포함
-    const finish = (data as any)?.candidates?.[0]?.finishReason;
+     const finish = data?.candidates?.[0]?.finishReason;
     const hint = finish ? ` (finishReason: ${finish})` : "";
     throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
   }
