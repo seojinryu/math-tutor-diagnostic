@@ -148,76 +148,108 @@ interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates
  * Provider Calls
  **********************/
 async function callGemini({ apiKey, systemPrompt, problem, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
+  const responseSchema = {
+    type: "OBJECT",
+    properties: {
+      diagnosis: {
+        type: "OBJECT",
+        properties: {
+          problem_understanding: { type: "STRING", enum: ["low","medium","high"] },
+          concept_knowledge:    { type: "STRING", enum: ["low","medium","high"] },
+          error_pattern:        { type: "STRING", enum: ["none","calculation_error","logical_error","concept_confusion","approach_error"] },
+          learning_style:       { type: "STRING", enum: ["visual","logical","experimental","unknown"] },
+          confidence_level:     { type: "STRING", enum: ["low","medium","high"] }
+        },
+        required: ["problem_understanding","concept_knowledge","error_pattern","learning_style","confidence_level"]
+      },
+      recommended_stage: { type: "STRING", enum: ["1","2","3","4"] },
+      stage_reason:      { type: "STRING" },
+      next_question:     { type: "STRING" }
+    },
+    required: ["diagnosis","recommended_stage","stage_reason","next_question"]
+  } as const;
+
+  const body = {
+    // 시스템 프롬프트는 별도 필드로
+    systemInstruction: {
+      role: "system",
+      parts: [{ text: systemPrompt }]
+    },
+    contents: [
+      {
+        role: "user",
+        parts: [{
+          text:
+            `### 실제 입력 데이터\n` +
+            `- 문제: ${problem}\n` +
+            `- 학생 응답: ${userMessage}\n` +
+            `- 컨텍스트: ${context}`
+        }]
+      }
+    ],
+    generationConfig: {
+      temperature: 0,
+      maxOutputTokens: 1000,
+      responseMimeType: "application/json",
+      // 💡 스키마 강제: JSON 외 다른 포맷 방지
+      responseSchema
+    }
+  };
+
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text:
-                  `${systemPrompt}
-
-` +
-                  `### 실제 입력 데이터
-` +
-                  `- 문제: ${problem}
-` +
-                  `- 학생 응답: ${userMessage}
-` +
-                  `- 컨텍스트: ${context}`,
-              },
-            ],
-          },
-        ],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 1000,
-          responseMimeType: 'application/json',
-        },
-      }),
-    }
+    { method: "POST", headers: { "Content-Type": "application/json" }, signal, body: JSON.stringify(body) }
   );
 
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`Gemini API 오류: ${res.status} ${res.statusText} - ${t}`);
   }
-  const data = (await res.json()) as GeminiResponse;
 
+  const data = (await res.json()) as GeminiResponse & {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string, inlineData?: { data: string } }> } }>;
+  };
+
+  // 안전성/차단 사유 먼저 체크
   const blocked = data?.promptFeedback?.blockReason;
-  const c0 = data?.candidates?.[0];
-  const parts = c0?.content?.parts ?? [];
-  let jsonText = '';
+  if (blocked) {
+    throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
+  }
+
+  // 1순위: text 파트
+  const parts = data?.candidates?.[0]?.content?.parts ?? [];
+  let text = "";
   for (const p of parts) {
-    if (typeof p?.text === 'string' && p.text.trim().startsWith('{')) {
-      jsonText = p.text.trim();
+    if (typeof p?.text === "string" && p.text.trim()) {
+      text = p.text.trim();
       break;
     }
-    if (p?.inlineData?.data) {
-      try {
-        // atob가 브라우저 환경에 존재한다고 가정('use client')
-        const decoded = typeof globalThis.atob === 'function' ? globalThis.atob(p.inlineData.data) : '';
-        if (decoded.trim().startsWith('{')) {
-          jsonText = decoded.trim();
-          break;
-        }
-      } catch {
-        // ignore
+  }
+
+  // 2순위: inlineData(base64) 파트
+  if (!text) {
+    for (const p of parts) {
+      const b64 = p?.inlineData?.data;
+      if (b64) {
+        try {
+          const decoded = typeof globalThis.atob === "function" ? globalThis.atob(b64) : "";
+          if (decoded.trim()) {
+            text = decoded.trim();
+            break;
+          }
+        } catch { /* ignore */ }
       }
     }
   }
-  if (!jsonText) {
-    if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
-    throw new Error('Gemini 응답에서 JSON 본문을 찾지 못했습니다.');
+
+  if (!text) {
+    // 디버깅을 돕기 위해 finishReason 힌트 포함
+    const finish = (data as any)?.candidates?.[0]?.finishReason;
+    const hint = finish ? ` (finishReason: ${finish})` : "";
+    throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
   }
 
-  const parsed = JSON.parse(jsonText) as unknown;
+  const parsed = JSON.parse(text) as unknown;
   validateDiagnostic(parsed);
   return parsed;
 }
