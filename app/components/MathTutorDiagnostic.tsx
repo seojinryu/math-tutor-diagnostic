@@ -1,16 +1,16 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Send, MessageCircle, Brain, Settings, BookOpen, Key } from 'lucide-react';
 
 interface DiagnosticData {
   diagnosis: {
-    problem_understanding: string;
-    concept_knowledge: string;
-    error_pattern: string;
-    learning_style: string;
-    confidence_level: string;
+    problem_understanding: 'low' | 'medium' | 'high';
+    concept_knowledge: 'low' | 'medium' | 'high';
+    error_pattern: 'none' | 'calculation_error' | 'logical_error' | 'concept_confusion' | 'approach_error';
+    learning_style: 'visual' | 'logical' | 'experimental' | 'unknown';
+    confidence_level: 'low' | 'medium' | 'high';
   };
-  recommended_stage: string;
+  recommended_stage: '1' | '2' | '3' | '4';
   stage_reason: string;
   next_question: string;
 }
@@ -27,26 +27,28 @@ interface Message {
 const MathTutorDiagnostic = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
-  const [currentProblem, setCurrentProblem] = useState('어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?\n객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m');
+  const [currentProblem, setCurrentProblem] = useState(
+    '어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?\n객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m'
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [showApiKeyInput, setShowApiKeyInput] = useState(true);
-  const [apiProvider, setApiProvider] = useState('gemini');
+  const [apiProvider, setApiProvider] = useState<'gemini' | 'openai' | 'claude'>('gemini');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
 
+  // ====== 시스템 프롬프트 (요청하신 텍스트 반영) ======
   const SYSTEM_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
-
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
 ### **입력 데이터**
-- **문제**: ${currentProblem}
-- **학생 응답**: 아래 학생의 최신 응답
-- **컨텍스트**: ${messages.map(m => `${m.type}: ${m.content}`).join('\n')}
+- **문제**: {문제 텍스트, 예: "이차방정식 \\( x^2 - 5x + 6 = 0 \\)의 근을 구하세요."}
+- **학생 응답**: {학생의 답변, 풀이 과정, 또는 질문, 예: "근이 뭔지 모르겠어요", "x = 2, 4", 또는 "(x-2)(x-4) = 0"}
+- **컨텍스트** (선택 사항): {이전 대화 이력, 학생의 학습 스타일(시각적/논리적/실험적), 과거 오류 패턴}
 
 ### **임무**
 1. **학생 상태 진단**:
-   - **문제 이해도**: 학생이 문제의 요구사항을 파악했는지? (낮음/중간/높음)
-   - **개념 지식**: 관련 수학 개념을 이해하는 수준 (낮음/중간/높음)
+   - **문제 이해도**: 학생이 문제의 요구사항(예: 근 구하기)을 파악했는지? (낮음/중간/높음)
+   - **개념 지식**: 관련 수학 개념(예: 이차방정식, 인수분해)을 이해하는 수준 (낮음/중간/높음)
    - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별
    - **학습 스타일**: 시각적(다이어그램 선호), 논리적(공식 선호), 실험적(대입 시도) 중 선호 추정
    - **자신감 수준**: 학생의 답변에서 드러나는 태도 (낮음: 좌절/망설임, 중간: 보통, 높음: 자신감)
@@ -56,10 +58,9 @@ const MathTutorDiagnostic = () => {
    - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
 
 3. **다음 질문 제안**:
-   - 학생의 상태에 맞춘 후속 질문 또는 힌트
+   - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?") 
 
-먼저 학생에게 자연스럽게 답변하고, 그 다음에 반드시 다음 JSON 형식으로만 진단 결과를 제공하세요:
-
+### **출력 형식**
 \`\`\`json
 {
   "diagnosis": {
@@ -75,76 +76,120 @@ const MathTutorDiagnostic = () => {
 }
 \`\`\``;
 
-  // Gemini API 호출
-  const callGemini = async (userMessage: string) => {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${SYSTEM_PROMPT}\n\n학생 응답: ${userMessage}` }
-            ]
-          }
-        ],
-        generationConfig: {
-          temperature: 0,
-          topK: 40,
-          topP: 1,
-          maxOutputTokens: 1000
-        }
-      })
-    });
+  // ====== 공통 유틸 ======
+  const nowTime = () => new Date().toLocaleTimeString();
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Gemini API 오류: ${response.status} ${response.statusText} - ${errorText}`);
+  const safeExtractTextFromGemini = (data: any): string => {
+    const blocked = data?.promptFeedback?.blockReason;
+    if (!data?.candidates?.length) {
+      if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
+      throw new Error('응답에 candidates가 없습니다.');
     }
-
-    const data = await response.json();
-    
-    // 응답 구조 확인 및 안전한 접근
-    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
-      console.error('Gemini API 응답 구조 오류:', data);
-      throw new Error('Gemini API 응답 형식이 올바르지 않습니다.');
-    }
-    
-    return data.candidates[0].content.parts[0].text;
+    const parts = data.candidates[0]?.content?.parts ?? [];
+    const text = parts
+      .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+      .join('')
+      .trim();
+    if (!text) throw new Error('응답에 텍스트가 없습니다.');
+    return text;
   };
 
-  // OpenAI API 호출
+  // JSON 코드블록/비코드블록 모두 처리
+  const extractJSON = (text: string): DiagnosticData | null => {
+    try {
+      const block = text.match(/```json\s*([\s\S]*?)\s*```/);
+      if (block) return JSON.parse(block[1]);
+
+      // 중괄호 시작~끝 구간 탐색
+      const i = text.indexOf('{');
+      const j = text.lastIndexOf('}');
+      if (i !== -1 && j !== -1 && j > i) {
+        const maybe = text.slice(i, j + 1);
+        return JSON.parse(maybe);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // ====== API 호출 ======
+  const callGemini = async (userMessage: string) => {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user', // ★ 필수
+              parts: [
+                {
+                  text:
+                    `${SYSTEM_PROMPT}\n\n` +
+                    `### 실제 입력 데이터\n` +
+                    `- 문제: ${currentProblem}\n` +
+                    `- 학생 응답: ${userMessage}\n` +
+                    `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            temperature: 0,
+            topK: 40,
+            topP: 1,
+            maxOutputTokens: 1000,
+            responseMimeType: 'text/plain' // ★ 파싱 안정화
+          }
+        })
+      }
+    );
+
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Gemini API 오류: ${res.status} ${res.statusText} - ${t}`);
+    }
+    const data = await res.json();
+    return safeExtractTextFromGemini(data);
+  };
+
   const callOpenAI = async (userMessage: string) => {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'gpt-4',
+        model: 'gpt-4o-mini', // 최신 경량 모델 (원하시면 gpt-4o 로 교체)
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userMessage }
+          {
+            role: 'user',
+            content:
+              `### 실제 입력 데이터\n` +
+              `- 문제: ${currentProblem}\n` +
+              `- 학생 응답: ${userMessage}\n` +
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+          }
         ],
-        temperature: 0.7,
+        temperature: 0,
         max_tokens: 1000
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`API 오류: ${response.status} ${response.statusText}`);
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`OpenAI API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content ?? '';
   };
 
-  // Claude API 호출 (Anthropic)
   const callClaude = async (userMessage: string) => {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -152,57 +197,35 @@ const MathTutorDiagnostic = () => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-3-sonnet-20240229',
+        model: 'claude-3-5-sonnet-20240620',
+        system: SYSTEM_PROMPT,
         max_tokens: 1000,
         messages: [
-          { role: 'user', content: `${SYSTEM_PROMPT}\n\n학생 응답: ${userMessage}` }
+          {
+            role: 'user',
+            content:
+              `### 실제 입력 데이터\n` +
+              `- 문제: ${currentProblem}\n` +
+              `- 학생 응답: ${userMessage}\n` +
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
+          }
         ]
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`API 오류: ${response.status} ${response.statusText}`);
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Claude API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
-
-    const data = await response.json();
-    return data.content[0].text;
+    const data = await res.json();
+    const text = (data?.content ?? [])
+      .map((c: any) => (c?.type === 'text' ? c.text : ''))
+      .join('')
+      .trim();
+    return text;
   };
 
-  // JSON 추출 함수
-  const extractJSON = (text: string): DiagnosticData | null => {
-    try {
-      const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
-      if (jsonMatch) {
-        return JSON.parse(jsonMatch[1]);
-      }
-      
-      // JSON이 코드 블록 없이 있을 수도 있음
-      const lines = text.split('\n');
-      let jsonStart = -1;
-      let jsonEnd = -1;
-      
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].trim().startsWith('{')) {
-          jsonStart = i;
-        }
-        if (lines[i].trim().endsWith('}') && jsonStart !== -1) {
-          jsonEnd = i;
-          break;
-        }
-      }
-      
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonStr = lines.slice(jsonStart, jsonEnd + 1).join('\n');
-        return JSON.parse(jsonStr);
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('JSON 파싱 오류:', error);
-      return null;
-    }
-  };
-
+  // ====== 전송 핸들러 ======
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
     if (!apiKey) {
@@ -211,55 +234,42 @@ const MathTutorDiagnostic = () => {
     }
 
     setIsLoading(true);
-    
+    const studentMessage: Message = {
+      type: 'student',
+      content: currentInput,
+      timestamp: nowTime()
+    };
+    setMessages((prev) => [...prev, studentMessage]);
+
     try {
-      const studentMessage: Message = {
-        type: 'student',
-        content: currentInput,
-        timestamp: new Date().toLocaleTimeString()
-      };
+      let llmResponse = '';
+      if (apiProvider === 'gemini') llmResponse = await callGemini(currentInput);
+      else if (apiProvider === 'openai') llmResponse = await callOpenAI(currentInput);
+      else llmResponse = await callClaude(currentInput);
 
-      setMessages(prev => [...prev, studentMessage]);
-
-      // API 호출
-      let llmResponse;
-      if (apiProvider === 'gemini') {
-        llmResponse = await callGemini(currentInput);
-      } else if (apiProvider === 'openai') {
-        llmResponse = await callOpenAI(currentInput);
-      } else {
-        llmResponse = await callClaude(currentInput);
-      }
-
-      // 응답에서 LLM 답변과 JSON 분리
+      // JSON 분리
       const jsonData = extractJSON(llmResponse);
       const responseText = llmResponse.replace(/```json[\s\S]*?```/g, '').trim();
 
-      // 실시간 진단 결과 업데이트
-      if (jsonData) {
-        setCurrentDiagnostic(jsonData);
-      }
+      if (jsonData) setCurrentDiagnostic(jsonData);
 
       const llmMessage: Message = {
         type: 'llm',
-        content: responseText,
+        content: responseText || '(응답이 JSON만 포함되어 있습니다)',
         diagnostic: jsonData,
-        timestamp: new Date().toLocaleTimeString(),
+        timestamp: nowTime(),
         rawResponse: llmResponse
       };
-
-      setMessages(prev => [...prev, llmMessage]);
+      setMessages((prev) => [...prev, llmMessage]);
       setCurrentInput('');
-      
-    } catch (error) {
-      console.error('API 호출 오류:', error);
+    } catch (err: any) {
       const errorMessage: Message = {
         type: 'llm',
-        content: `오류가 발생했습니다: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
-        timestamp: new Date().toLocaleTimeString(),
+        content: `오류가 발생했습니다: ${err?.message ?? '알 수 없는 오류'}`,
+        timestamp: nowTime(),
         isError: true
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -273,10 +283,8 @@ const MathTutorDiagnostic = () => {
   };
 
   const saveApiKey = () => {
-    if (apiKey.trim()) {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(`${apiProvider}_api_key`, apiKey);
-      }
+    if (apiKey.trim() && typeof window !== 'undefined') {
+      localStorage.setItem(`${apiProvider}_api_key`, apiKey);
       setShowApiKeyInput(false);
     }
   };
@@ -297,7 +305,7 @@ const MathTutorDiagnostic = () => {
   const getStageColor = (stage: string) => {
     const colors: Record<string, string> = {
       '1': 'bg-blue-100 text-blue-800',
-      '2': 'bg-green-100 text-green-800', 
+      '2': 'bg-green-100 text-green-800',
       '3': 'bg-orange-100 text-orange-800',
       '4': 'bg-purple-100 text-purple-800'
     };
@@ -308,19 +316,20 @@ const MathTutorDiagnostic = () => {
     const labels: Record<string, string> = {
       '1': '문제 이해하기',
       '2': '계획 세우기',
-      '3': '계획 실행하기', 
+      '3': '계획 실행하기',
       '4': '되돌아보기'
     };
     return labels[stage] || '단계 미정';
   };
 
-  // 컴포넌트 로드 시 저장된 API 키 확인
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedKey = localStorage.getItem(`${apiProvider}_api_key`);
-      if (savedKey) {
-        setApiKey(savedKey);
+      const saved = localStorage.getItem(`${apiProvider}_api_key`);
+      if (saved) {
+        setApiKey(saved);
         setShowApiKeyInput(false);
+      } else {
+        setShowApiKeyInput(true);
       }
     }
   }, [apiProvider]);
@@ -332,11 +341,13 @@ const MathTutorDiagnostic = () => {
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템
         </h1>
-        <p className="text-gray-600">폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.</p>
+        <p className="text-gray-600">
+          폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.
+        </p>
       </div>
 
       {/* API 키 설정 */}
-      {showApiKeyInput && (
+      {showApiKeyInput ? (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
           <div className="flex items-center justify-between">
             <div className="flex">
@@ -344,30 +355,31 @@ const MathTutorDiagnostic = () => {
                 <Key className="h-5 w-5 text-yellow-400" />
               </div>
               <div className="ml-3 flex-1">
-                <p className="text-sm text-yellow-700">
-                  LLM API를 사용하려면 API 키를 입력하세요.
-                </p>
+                <p className="text-sm text-yellow-700">LLM API를 사용하려면 API 키를 입력하세요.</p>
                 <div className="mt-3 flex items-center gap-3">
                   <select
                     value={apiProvider}
-                    onChange={(e) => setApiProvider(e.target.value)}
+                    onChange={(e) => setApiProvider(e.target.value as any)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm"
                   >
                     <option value="gemini">Google Gemini 2.5 Pro</option>
-                    <option value="openai">OpenAI (GPT-4)</option>
-                    <option value="claude">Anthropic (Claude)</option>
+                    <option value="openai">OpenAI (GPT-4o)</option>
+                    <option value="claude">Anthropic (Claude 3.5)</option>
                   </select>
                   <input
                     type="password"
-                    placeholder={`${apiProvider === 'gemini' ? 'Google Gemini' : apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키를 입력하세요`}
+                    placeholder={
+                      apiProvider === 'gemini'
+                        ? 'Google Gemini API 키'
+                        : apiProvider === 'openai'
+                        ? 'OpenAI API 키'
+                        : 'Anthropic API 키'
+                    }
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     className="border border-gray-300 rounded px-3 py-1 text-sm flex-1 max-w-md"
                   />
-                  <button
-                    onClick={saveApiKey}
-                    className="bg-yellow-600 text-white px-4 py-1 rounded text-sm hover:bg-yellow-700"
-                  >
+                  <button onClick={saveApiKey} className="bg-yellow-600 text-white px-4 py-1 rounded text-sm hover:bg-yellow-700">
                     저장
                   </button>
                 </div>
@@ -375,20 +387,20 @@ const MathTutorDiagnostic = () => {
             </div>
           </div>
         </div>
-      )}
-
-      {!showApiKeyInput && (
+      ) : (
         <div className="bg-green-50 border-l-4 border-green-400 p-3 mb-6 flex justify-between items-center">
           <div className="flex items-center">
             <Key className="h-4 w-4 text-green-400 mr-2" />
             <span className="text-sm text-green-700">
-              {apiProvider === 'gemini' ? 'Google Gemini 2.5 Pro' : apiProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API 키가 설정되었습니다.
+              {apiProvider === 'gemini'
+                ? 'Google Gemini 2.5 Pro'
+                : apiProvider === 'openai'
+                ? 'OpenAI (GPT-4o)'
+                : 'Anthropic (Claude 3.5)'}{' '}
+              API 키가 설정되었습니다.
             </span>
           </div>
-          <button
-            onClick={clearApiKey}
-            className="text-sm text-green-600 hover:text-green-800"
-          >
+          <button onClick={clearApiKey} className="text-sm text-green-600 hover:text-green-800">
             API 키 변경
           </button>
         </div>
@@ -419,47 +431,40 @@ const MathTutorDiagnostic = () => {
                 <MessageCircle className="text-blue-600" size={20} />
                 학생-LLM 대화
               </h2>
-              <button
-                onClick={clearChat}
-                className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100"
-              >
+              <button onClick={clearChat} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100">
                 대화 초기화
               </button>
             </div>
           </div>
-          
+
           <div className="h-96 overflow-y-auto p-4 space-y-4">
-            {messages.length === 0 && (
-              <div className="text-center text-gray-500 py-8">
-                학생의 첫 메시지를 기다리고 있습니다...
-              </div>
-            )}
-            
+            {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
+
             {messages.map((message, index) => (
               <div key={index} className={`flex ${message.type === 'student' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-xs lg:max-w-sm rounded-lg p-3 ${
-                  message.isError
-                    ? 'bg-red-100 text-red-800 border border-red-200'
-                    : message.type === 'student' 
-                      ? 'bg-blue-500 text-white' 
+                <div
+                  className={`max-w-xs lg:max-w-sm rounded-lg p-3 ${
+                    message.isError
+                      ? 'bg-red-100 text-red-800 border border-red-200'
+                      : message.type === 'student'
+                      ? 'bg-blue-500 text-white'
                       : 'bg-gray-100 text-gray-900'
-                }`}>
-                  <div className="text-sm font-medium mb-1">
-                    {message.type === 'student' ? '학생' : 'LLM'}
-                  </div>
-                  <div className="text-sm">{message.content}</div>
+                  }`}
+                >
+                  <div className="text-sm font-medium mb-1">{message.type === 'student' ? '학생' : 'LLM'}</div>
+                  <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                   <div className="text-xs opacity-70 mt-1">{message.timestamp}</div>
                 </div>
               </div>
             ))}
-            
+
             {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-gray-100 text-gray-900 rounded-lg p-3">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
               </div>
@@ -498,26 +503,31 @@ const MathTutorDiagnostic = () => {
               실시간 진단 결과
             </h2>
           </div>
-          
+
           <div className="p-4 h-96 overflow-y-auto">
-            {/* 실시간 진단 현황 */}
             {currentDiagnostic && (
               <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
-                <h3 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">
-                  ⚡ 현재 진단 상태
-                </h3>
+                <h3 className="font-semibold text-purple-800 mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
                 <div className="mb-3">
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStageColor(currentDiagnostic.recommended_stage)}`}>
                     단계 {currentDiagnostic.recommended_stage}: {getStageLabel(currentDiagnostic.recommended_stage)}
                   </span>
                 </div>
-                
+
                 <div className="bg-white rounded p-3 mb-3">
                   <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
-                    <div>개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
-                    <div>오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
-                    <div>자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
+                    <div>
+                      문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span>
+                    </div>
+                    <div>
+                      개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span>
+                    </div>
+                    <div>
+                      오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span>
+                    </div>
+                    <div>
+                      자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -530,41 +540,43 @@ const MathTutorDiagnostic = () => {
               </div>
             )}
 
-            {/* 진단 히스토리 */}
+            {/* 히스토리 */}
             {messages.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
-                학생이 메시지를 보내면<br />진단 결과가 여기에 표시됩니다.
+                학생이 메시지를 보내면
+                <br />
+                진단 결과가 여기에 표시됩니다.
               </div>
             ) : (
               <div className="space-y-4">
                 <h3 className="font-medium text-gray-700 border-b pb-2">진단 히스토리</h3>
                 {messages
-                  .filter(m => m.type === 'llm' && m.diagnostic)
-                  .map((message, index) => (
-                    <div key={index} className="border rounded-lg p-4 bg-gray-50">
+                  .filter((m) => m.type === 'llm' && m.diagnostic)
+                  .map((m, idx) => (
+                    <div key={idx} className="border rounded-lg p-4 bg-gray-50">
                       <div className="mb-3">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(message.diagnostic!.recommended_stage)}`}>
-                            단계 {message.diagnostic!.recommended_stage}: {getStageLabel(message.diagnostic!.recommended_stage)}
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStageColor(m!.diagnostic!.recommended_stage)}`}>
+                            단계 {m!.diagnostic!.recommended_stage}: {getStageLabel(m!.diagnostic!.recommended_stage)}
                           </span>
-                          <span className="text-xs text-gray-500">{message.timestamp}</span>
+                          <span className="text-xs text-gray-500">{m.timestamp}</span>
                         </div>
                       </div>
-                      
+
                       <div className="bg-white rounded p-3 mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>문제 이해도: <span className="font-medium">{message.diagnostic!.diagnosis.problem_understanding}</span></div>
-                          <div>개념 지식: <span className="font-medium">{message.diagnostic!.diagnosis.concept_knowledge}</span></div>
-                          <div>오류 패턴: <span className="font-medium">{message.diagnostic!.diagnosis.error_pattern}</span></div>
-                          <div>자신감: <span className="font-medium">{message.diagnostic!.diagnosis.confidence_level}</span></div>
+                          <div>문제 이해도: <span className="font-medium">{m!.diagnostic!.diagnosis.problem_understanding}</span></div>
+                          <div>개념 지식: <span className="font-medium">{m!.diagnostic!.diagnosis.concept_knowledge}</span></div>
+                          <div>오류 패턴: <span className="font-medium">{m!.diagnostic!.diagnosis.error_pattern}</span></div>
+                          <div>자신감: <span className="font-medium">{m!.diagnostic!.diagnosis.confidence_level}</span></div>
                         </div>
                       </div>
 
                       <div className="bg-white rounded p-3">
                         <h4 className="font-medium text-gray-900 mb-2">JSON 출력</h4>
                         <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
-{JSON.stringify(message.diagnostic, null, 2)}
+{JSON.stringify(m.diagnostic, null, 2)}
                         </pre>
                       </div>
                     </div>
