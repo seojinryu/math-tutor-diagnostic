@@ -223,9 +223,13 @@ const SYSTEM_PROMPT_JSON_ONLY = `${SYSTEM_PROMPT_BASE}
 
 const buildContext = (msgs: Message[]) =>
   msgs
-    .slice(-10)
-    .filter((m) => m.type === 'student')
-    .map((m) => `학생: ${m.content}`)
+    .slice(-10)  // 최근 10개 메시지
+    .map((m) => {
+      if (m.type === 'student') return `학생: ${m.content}`;
+      if (m.type === 'llm' && !m.isError) return `선생님: ${m.content}`;
+      return '';
+    })
+    .filter(Boolean)
     .join('\n');
 
 /**********************
