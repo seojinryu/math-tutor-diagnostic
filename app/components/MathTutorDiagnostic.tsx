@@ -133,8 +133,7 @@ const buildContext = (msgs: Message[]) =>
     .slice(-10)
     .filter((m) => m.type === 'student')
     .map((m) => `학생: ${m.content}`)
-    .join('
-');
+    .join('\n');
 
 /**********************
  * Gemini minimal types
@@ -316,9 +315,9 @@ const MathTutorDiagnostic: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
   const [currentProblem, setCurrentProblem] = useState(
-    '어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?
-객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m'
-  );
+  `어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까?
+객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`
+);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
