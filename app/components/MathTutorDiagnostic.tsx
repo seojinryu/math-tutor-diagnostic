@@ -1,5 +1,5 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Send, MessageCircle, Brain, Settings, BookOpen, Key } from 'lucide-react';
 
 interface DiagnosticData {
@@ -36,7 +36,7 @@ const MathTutorDiagnostic = () => {
   const [apiProvider, setApiProvider] = useState<'gemini' | 'openai' | 'claude'>('gemini');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
 
-  const SYSTEM_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
+  const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
 ### **입력 데이터**
@@ -60,7 +60,6 @@ const MathTutorDiagnostic = () => {
    - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?") 
 
 ### **출력 형식**
-\`\`\`json
 {
   "diagnosis": {
     "problem_understanding": "low/medium/high",
@@ -72,36 +71,67 @@ const MathTutorDiagnostic = () => {
   "recommended_stage": "1/2/3/4",
   "stage_reason": "추천 이유 설명",
   "next_question": "학생에게 제안할 질문 또는 힌트"
-}
-\`\`\``;
+}`;
+
+  // JSON-only 강제 버전의 시스템 프롬프트
+  const SYSTEM_PROMPT_JSON_ONLY = useMemo(() => {
+    return (
+      SYSTEM_PROMPT_BASE +
+      '\n\n---\n반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(```), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.'
+    );
+  }, []);
 
   const nowTime = () => new Date().toLocaleTimeString();
 
-  const safeExtractTextFromGemini = (data: Record<string, unknown>): string => {
-    const promptFeedback = data?.promptFeedback as Record<string, unknown>;
-    const blocked = promptFeedback?.blockReason;
-    
-    const candidates = data?.candidates as Array<Record<string, unknown>>;
+  // --- Gemini 응답 파서(보강판): text, inlineData 모두 처리, finishReason/차단 사유 노출 ---
+  const safeExtractTextFromGemini = (data: any): string => {
+    const blocked = data?.promptFeedback?.blockReason;
+    const candidates = data?.candidates as Array<any> | undefined;
     if (!candidates?.length) {
       if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
       throw new Error('응답에 candidates가 없습니다.');
     }
-    
-    const content = candidates[0]?.content as Record<string, unknown>;
-    const parts = (content?.parts as Array<Record<string, unknown>>) ?? [];
-    const text = parts
-      .map((p: Record<string, unknown>) => (typeof p?.text === 'string' ? p.text : ''))
-      .join('')
-      .trim();
-    if (!text) throw new Error('응답에 텍스트가 없습니다.');
+
+    const c0 = candidates[0];
+    const parts: any[] = c0?.content?.parts ?? [];
+
+    const decodeInline = (b64: string) => {
+      try {
+        if (typeof atob === 'function') return atob(b64);
+        // Node/SSR 대비
+        // @ts-ignore
+        return Buffer.from(b64, 'base64').toString('utf-8');
+      } catch {
+        return '';
+      }
+    };
+
+    const texts: string[] = [];
+    for (const p of parts) {
+      if (typeof p?.text === 'string') texts.push(p.text);
+      else if (p?.inlineData?.data) texts.push(decodeInline(p.inlineData.data));
+      else if (p?.functionCall?.name) texts.push(`[functionCall:${p.functionCall.name}]`);
+    }
+
+    const text = texts.join('').trim();
+
+    if (!text) {
+      const finish = c0?.finishReason;
+      if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
+      if (finish && finish !== 'STOP') throw new Error(`출력 중단: ${finish}`);
+      throw new Error('응답에 텍스트가 없습니다. (parts 형식 미일치 가능)');
+    }
     return text;
   };
 
+  // JSON 추출기(여전히 다른 모델에서 보호적으로 사용)
   const extractJSON = (text: string): DiagnosticData | null => {
     try {
+      // 코드블록 제거 시도
       const block = text.match(/```json\s*([\s\S]*?)\s*```/);
       if (block) return JSON.parse(block[1]);
 
+      // 첫 중괄호 ~ 마지막 중괄호 범위 파싱 시도
       const i = text.indexOf('{');
       const j = text.lastIndexOf('}');
       if (i !== -1 && j !== -1 && j > i) {
@@ -114,6 +144,7 @@ const MathTutorDiagnostic = () => {
     }
   };
 
+  // --- 각 프로바이더 호출 ---
   const callGemini = async (userMessage: string) => {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
@@ -127,23 +158,24 @@ const MathTutorDiagnostic = () => {
               parts: [
                 {
                   text:
-                    `${SYSTEM_PROMPT}\n\n` +
+                    `${SYSTEM_PROMPT_JSON_ONLY}\n\n` +
                     `### 실제 입력 데이터\n` +
                     `- 문제: ${currentProblem}\n` +
                     `- 학생 응답: ${userMessage}\n` +
-                    `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
-                }
-              ]
-            }
+                    `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
+                },
+              ],
+            },
           ],
           generationConfig: {
             temperature: 0,
             topK: 40,
             topP: 1,
             maxOutputTokens: 1000,
-            responseMimeType: 'text/plain'
-          }
-        })
+            // JSON만 받도록 강제
+            responseMimeType: 'application/json',
+          },
+        }),
       }
     );
 
@@ -152,7 +184,15 @@ const MathTutorDiagnostic = () => {
       throw new Error(`Gemini API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
     const data = await res.json();
-    return safeExtractTextFromGemini(data);
+    const text = safeExtractTextFromGemini(data); // string(JSON)
+
+    // JSON만 오도록 강제했으므로 바로 파싱 검증
+    try {
+      JSON.parse(text);
+    } catch (e: any) {
+      throw new Error(`JSON 파싱 실패: ${e?.message || e}`);
+    }
+    return text; // JSON 문자열을 반환
   };
 
   const callOpenAI = async (userMessage: string) => {
@@ -160,24 +200,26 @@ const MathTutorDiagnostic = () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: SYSTEM_PROMPT_JSON_ONLY },
           {
             role: 'user',
             content:
               `### 실제 입력 데이터\n` +
               `- 문제: ${currentProblem}\n` +
               `- 학생 응답: ${userMessage}\n` +
-              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
-          }
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
+          },
         ],
         temperature: 0,
-        max_tokens: 1000
-      })
+        max_tokens: 1000,
+        // JSON 모드가 가능한 엔드포인트에선 response_format을 쓸 수 있지만
+        // 호환성을 위해 프롬프트 강제 + 파서로 처리
+      }),
     });
 
     if (!res.ok) {
@@ -185,7 +227,12 @@ const MathTutorDiagnostic = () => {
       throw new Error(`OpenAI API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
     const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? '';
+    const content: string = data?.choices?.[0]?.message?.content ?? '';
+    if (!content) throw new Error('OpenAI 응답에 content가 없습니다.');
+
+    // 가능하면 바로 JSON 파싱(검증) 후 원문 반환
+    const json = extractJSON(content) ?? (() => { throw new Error('OpenAI 응답에서 JSON을 찾지 못했습니다.'); })();
+    return JSON.stringify(json);
   };
 
   const callClaude = async (userMessage: string) => {
@@ -194,11 +241,11 @@ const MathTutorDiagnostic = () => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
         model: 'claude-3-5-sonnet-20240620',
-        system: SYSTEM_PROMPT,
+        system: SYSTEM_PROMPT_JSON_ONLY,
         max_tokens: 1000,
         messages: [
           {
@@ -207,10 +254,10 @@ const MathTutorDiagnostic = () => {
               `### 실제 입력 데이터\n` +
               `- 문제: ${currentProblem}\n` +
               `- 학생 응답: ${userMessage}\n` +
-              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`
-          }
-        ]
-      })
+              `- 컨텍스트: ${messages.map((m) => `${m.type}: ${m.content}`).join('\n')}`,
+          },
+        ],
+      }),
     });
 
     if (!res.ok) {
@@ -218,12 +265,12 @@ const MathTutorDiagnostic = () => {
       throw new Error(`Claude API 오류: ${res.status} ${res.statusText} - ${t}`);
     }
     const data = await res.json();
-    const content = (data?.content ?? []) as Array<{ type: string; text: string }>;
-    const text = content
-      .map((c) => (c?.type === 'text' ? c.text : ''))
-      .join('')
-      .trim();
-    return text;
+    const contentArr = (data?.content ?? []) as Array<{ type: string; text: string }>;
+    const text = contentArr.map((c) => (c?.type === 'text' ? c.text : '')).join('').trim();
+    if (!text) throw new Error('Claude 응답에 텍스트가 없습니다.');
+
+    const json = extractJSON(text) ?? (() => { throw new Error('Claude 응답에서 JSON을 찾지 못했습니다.'); })();
+    return JSON.stringify(json);
   };
 
   const handleSendMessage = async () => {
@@ -237,7 +284,7 @@ const MathTutorDiagnostic = () => {
     const studentMessage: Message = {
       type: 'student',
       content: currentInput,
-      timestamp: nowTime()
+      timestamp: nowTime(),
     };
     setMessages((prev) => [...prev, studentMessage]);
 
@@ -247,8 +294,15 @@ const MathTutorDiagnostic = () => {
       else if (apiProvider === 'openai') llmResponse = await callOpenAI(currentInput);
       else llmResponse = await callClaude(currentInput);
 
-      const jsonData = extractJSON(llmResponse);
-      const responseText = llmResponse.replace(/```json[\s\S]*?```/g, '').trim();
+      // 여기서부터는 llmResponse가 가능하면 순수 JSON 문자열이라고 가정
+      let jsonData: DiagnosticData | null = null;
+      try {
+        jsonData = JSON.parse(llmResponse);
+      } catch {
+        jsonData = extractJSON(llmResponse);
+      }
+
+      const responseText = jsonData ? '' : llmResponse.replace(/```json[\s\S]*?```/g, '').trim();
 
       if (jsonData) setCurrentDiagnostic(jsonData);
 
@@ -257,16 +311,17 @@ const MathTutorDiagnostic = () => {
         content: responseText || '(응답이 JSON만 포함되어 있습니다)',
         diagnostic: jsonData,
         timestamp: nowTime(),
-        rawResponse: llmResponse
+        rawResponse: llmResponse,
       };
       setMessages((prev) => [...prev, llmMessage]);
       setCurrentInput('');
     } catch (err: unknown) {
+      const errorText = err instanceof Error ? err.message : '알 수 없는 오류';
       const errorMessage: Message = {
         type: 'llm',
-        content: `오류가 발생했습니다: ${err instanceof Error ? err.message : '알 수 없는 오류'}`,
+        content: `오류가 발생했습니다: ${errorText}`,
         timestamp: nowTime(),
-        isError: true
+        isError: true,
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
@@ -306,7 +361,7 @@ const MathTutorDiagnostic = () => {
       '1': 'bg-blue-100 text-blue-800',
       '2': 'bg-green-100 text-green-800',
       '3': 'bg-orange-100 text-orange-800',
-      '4': 'bg-purple-100 text-purple-800'
+      '4': 'bg-purple-100 text-purple-800',
     };
     return colors[stage] || 'bg-gray-100 text-gray-800';
   };
@@ -316,7 +371,7 @@ const MathTutorDiagnostic = () => {
       '1': '문제 이해하기',
       '2': '계획 세우기',
       '3': '계획 실행하기',
-      '4': '되돌아보기'
+      '4': '되돌아보기',
     };
     return labels[stage] || '단계 미정';
   };
@@ -340,9 +395,7 @@ const MathTutorDiagnostic = () => {
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템
         </h1>
-        <p className="text-gray-600">
-          폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.
-        </p>
+        <p className="text-gray-600">폴리아의 4단계 문제해결 접근법을 기반으로 학생의 학습 상태를 실시간 진단합니다.</p>
       </div>
 
       {showApiKeyInput ? (
@@ -390,12 +443,7 @@ const MathTutorDiagnostic = () => {
           <div className="flex items-center">
             <Key className="h-4 w-4 text-green-400 mr-2" />
             <span className="text-sm text-green-700">
-              {apiProvider === 'gemini'
-                ? 'Google Gemini 2.5 Pro'
-                : apiProvider === 'openai'
-                ? 'OpenAI (GPT-4o)'
-                : 'Anthropic (Claude 3.5)'}{' '}
-              API 키가 설정되었습니다.
+              {apiProvider === 'gemini' ? 'Google Gemini 2.5 Pro' : apiProvider === 'openai' ? 'OpenAI (GPT-4o)' : 'Anthropic (Claude 3.5)'} API 키가 설정되었습니다.
             </span>
           </div>
           <button onClick={clearApiKey} className="text-sm text-green-600 hover:text-green-800">
@@ -527,9 +575,7 @@ const MathTutorDiagnostic = () => {
 
                 <div className="bg-white rounded p-3">
                   <h4 className="font-medium text-gray-900 mb-2">실시간 JSON</h4>
-                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
-{JSON.stringify(currentDiagnostic, null, 2)}
-                  </pre>
+                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
                 </div>
               </div>
             )}
@@ -559,18 +605,24 @@ const MathTutorDiagnostic = () => {
                       <div className="bg-white rounded p-3 mb-3">
                         <h4 className="font-medium text-gray-900 mb-2">진단 상태</h4>
                         <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div>문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
-                          <div>개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
-                          <div>오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
-                          <div>자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
+                          <div>
+                            문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span>
+                          </div>
+                          <div>
+                            개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span>
+                          </div>
+                          <div>
+                            오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span>
+                          </div>
+                          <div>
+                            자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span>
+                          </div>
                         </div>
                       </div>
 
                       <div className="bg-white rounded p-3">
                         <h4 className="font-medium text-gray-900 mb-2">JSON 출력</h4>
-                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">
-{JSON.stringify(m.diagnostic, null, 2)}
-                        </pre>
+                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto">{JSON.stringify(m.diagnostic, null, 2)}</pre>
                       </div>
                     </div>
                   ))}
@@ -586,9 +638,7 @@ const MathTutorDiagnostic = () => {
           시스템 프롬프트 (폴리아 4단계 기반 진단)
         </h3>
         <div className="bg-gray-50 rounded-lg p-4">
-          <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-x-auto">
-{SYSTEM_PROMPT}
-          </pre>
+          <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-x-auto">{SYSTEM_PROMPT_BASE}\n\n[실행 정책]\n- 모델 응답은 가능하면 순수 JSON으로 받습니다.\n- Gemini는 responseMimeType을 application/json으로 강제합니다.\n- OpenAI/Claude는 프롬프트로 JSON만 출력하도록 지시하고, 응답에서 JSON을 추출/검증합니다.</pre>
         </div>
       </div>
     </div>
