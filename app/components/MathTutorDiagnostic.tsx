@@ -91,7 +91,7 @@ const MathTutorDiagnostic = () => {
           }
         ],
         generationConfig: {
-          temperature: 1,
+          temperature: 0,
           topK: 40,
           topP: 1,
           maxOutputTokens: 1000
@@ -100,10 +100,18 @@ const MathTutorDiagnostic = () => {
     });
 
     if (!response.ok) {
-      throw new Error(`API 오류: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Gemini API 오류: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json();
+    
+    // 응답 구조 확인 및 안전한 접근
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+      console.error('Gemini API 응답 구조 오류:', data);
+      throw new Error('Gemini API 응답 형식이 올바르지 않습니다.');
+    }
+    
     return data.candidates[0].content.parts[0].text;
   };
 
