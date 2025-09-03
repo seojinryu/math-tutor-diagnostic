@@ -1,10 +1,20 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2, User } from 'lucide-react';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2, User, Plus, Edit2, Trash2, Check, X, List } from 'lucide-react';
 
 /**********************
  * Types
  **********************/
+export interface Problem {
+  id: string;
+  title: string;
+  content: string;
+  category?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DiagnosticData {
   diagnosis: {
     problem_understanding: 'low' | 'medium' | 'high';
@@ -27,6 +37,7 @@ export interface Message {
   rawResponse?: string;
   isError?: boolean;
   debug?: string;
+  problemId?: string;
 }
 
 /**********************
@@ -342,16 +353,78 @@ async function callGemini({ apiKey, systemPrompt, problem, userMessage, context,
 const MathTutorDiagnostic: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [currentInput, setCurrentInput] = useState('');
-  const [currentProblem, setCurrentProblem] = useState(`어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m`);
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [selectedProblemId, setSelectedProblemId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(true);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
+  const [showProblemManager, setShowProblemManager] = useState(false);
+  const [isAddingProblem, setIsAddingProblem] = useState(false);
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
+  const [newProblem, setNewProblem] = useState<Partial<Problem>>({
+    title: '',
+    content: '',
+    category: '',
+    difficulty: 'medium'
+  });
 
   const abortRef = useRef<AbortController | null>(null);
   const SYSTEM_PROMPT_JSON = useMemo(() => SYSTEM_PROMPT_JSON_ONLY, []);
+
+  const currentProblem = useMemo(() => {
+    return problems.find(p => p.id === selectedProblemId);
+  }, [problems, selectedProblemId]);
+
+  // Load problems from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedProblems = localStorage.getItem('math_tutor_problems');
+    if (storedProblems) {
+      try {
+        const parsed = JSON.parse(storedProblems) as Problem[];
+        setProblems(parsed);
+        if (parsed.length > 0 && !selectedProblemId) {
+          setSelectedProblemId(parsed[0].id);
+        }
+      } catch (e) {
+        console.error('Failed to load problems:', e);
+        // Initialize with default problem
+        const defaultProblem: Problem = {
+          id: uid(),
+          title: '달팽이 속력 문제',
+          content: '어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m',
+          category: '속력과 거리',
+          difficulty: 'easy',
+          createdAt: nowTime(),
+          updatedAt: nowTime()
+        };
+        setProblems([defaultProblem]);
+        setSelectedProblemId(defaultProblem.id);
+      }
+    } else {
+      // Initialize with default problem if no stored problems
+      const defaultProblem: Problem = {
+        id: uid(),
+        title: '달팽이 속력 문제',
+        content: '어느 달팽이는 한 시간에 42m를 갑니다. 이 달팽이가 같은 빠르기로 20분 동안 갈 수 있는 거리는 몇 m입니까? 객관식 보기: ① 13m ② 13¾m ③ 14m ④ 14⅓m',
+        category: '속력과 거리',
+        difficulty: 'easy',
+        createdAt: nowTime(),
+        updatedAt: nowTime()
+      };
+      setProblems([defaultProblem]);
+      setSelectedProblemId(defaultProblem.id);
+    }
+  }, []);
+
+  // Save problems to localStorage whenever they change
+  useEffect(() => {
+    if (typeof window === 'undefined' || problems.length === 0) return;
+    localStorage.setItem('math_tutor_problems', JSON.stringify(problems));
+  }, [problems]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -391,13 +464,109 @@ const MathTutorDiagnostic: React.FC = () => {
     setCurrentDiagnostic(null);
   };
 
+  const addProblem = () => {
+    if (!newProblem.title?.trim() || !newProblem.content?.trim()) {
+      alert('문제 제목과 내용을 입력해주세요.');
+      return;
+    }
+
+    const problem: Problem = {
+      id: uid(),
+      title: newProblem.title.trim(),
+      content: newProblem.content.trim(),
+      category: newProblem.category?.trim() || '',
+      difficulty: newProblem.difficulty || 'medium',
+      createdAt: nowTime(),
+      updatedAt: nowTime()
+    };
+
+    setProblems(prev => [...prev, problem]);
+    setSelectedProblemId(problem.id);
+    setNewProblem({
+      title: '',
+      content: '',
+      category: '',
+      difficulty: 'medium'
+    });
+    setIsAddingProblem(false);
+  };
+
+  const updateProblem = (problemId: string) => {
+    if (!newProblem.title?.trim() || !newProblem.content?.trim()) {
+      alert('문제 제목과 내용을 입력해주세요.');
+      return;
+    }
+
+    setProblems(prev => prev.map(p => 
+      p.id === problemId 
+        ? {
+            ...p,
+            title: newProblem.title!.trim(),
+            content: newProblem.content!.trim(),
+            category: newProblem.category?.trim() || '',
+            difficulty: newProblem.difficulty || 'medium',
+            updatedAt: nowTime()
+          }
+        : p
+    ));
+    
+    setEditingProblemId(null);
+    setNewProblem({
+      title: '',
+      content: '',
+      category: '',
+      difficulty: 'medium'
+    });
+  };
+
+  const deleteProblem = (problemId: string) => {
+    if (problems.length <= 1) {
+      alert('최소 1개의 문제는 있어야 합니다.');
+      return;
+    }
+
+    if (confirm('이 문제를 삭제하시겠습니까?')) {
+      setProblems(prev => prev.filter(p => p.id !== problemId));
+      if (selectedProblemId === problemId) {
+        const remainingProblems = problems.filter(p => p.id !== problemId);
+        if (remainingProblems.length > 0) {
+          setSelectedProblemId(remainingProblems[0].id);
+        }
+      }
+    }
+  };
+
+  const startEditProblem = (problem: Problem) => {
+    setEditingProblemId(problem.id);
+    setNewProblem({
+      title: problem.title,
+      content: problem.content,
+      category: problem.category,
+      difficulty: problem.difficulty
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingProblemId(null);
+    setIsAddingProblem(false);
+    setNewProblem({
+      title: '',
+      content: '',
+      category: '',
+      difficulty: 'medium'
+    });
+  };
+
   const contextText = useMemo(() => buildContext(messages), [messages]);
 
   const sendToGemini = useCallback(async (userMessage: string) => {
+    if (!currentProblem) {
+      throw new Error('문제가 선택되지 않았습니다.');
+    }
     const args: ProviderArgs = {
       apiKey,
       systemPrompt: SYSTEM_PROMPT_JSON,
-      problem: currentProblem,
+      problem: currentProblem.content,
       userMessage,
       context: contextText,
       signal: abortRef.current?.signal,
@@ -530,19 +699,232 @@ const MathTutorDiagnostic: React.FC = () => {
       )}
 
       <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <BookOpen className="text-green-600" size={20} />
-          현재 문제
-        </h2>
-        <div className="bg-blue-50 p-4 rounded-lg">
-          <textarea
-            value={currentProblem}
-            onChange={(e) => setCurrentProblem(e.target.value)}
-            className="w-full bg-transparent border-none resize-none focus:outline-none text-gray-800 font-medium"
-            rows={3}
-            aria-label="현재 문제 입력"
-          />
+        <div className="flex justify-between items-start mb-3">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <BookOpen className="text-green-600" size={20} />
+            문제 관리
+          </h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowProblemManager(!showProblemManager)}
+              className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1 text-sm"
+            >
+              <List size={16} />
+              {showProblemManager ? '닫기' : '문제 목록'} ({problems.length})
+            </button>
+            <button
+              onClick={() => setIsAddingProblem(true)}
+              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
+            >
+              <Plus size={16} />
+              새 문제
+            </button>
+          </div>
         </div>
+
+        {/* Current Problem Display */}
+        {currentProblem && !showProblemManager && (
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="font-semibold text-gray-900">{currentProblem.title}</h3>
+              <div className="flex gap-2">
+                {currentProblem.difficulty && (
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    currentProblem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
+                    currentProblem.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {currentProblem.difficulty === 'easy' ? '쉬움' :
+                     currentProblem.difficulty === 'medium' ? '보통' : '어려움'}
+                  </span>
+                )}
+                {currentProblem.category && (
+                  <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">
+                    {currentProblem.category}
+                  </span>
+                )}
+              </div>
+            </div>
+            <p className="text-gray-800 whitespace-pre-wrap">{currentProblem.content}</p>
+          </div>
+        )}
+
+        {/* Problem List */}
+        {showProblemManager && (
+          <div className="space-y-2 mt-4">
+            {problems.map((problem) => (
+              <div
+                key={problem.id}
+                className={`border rounded-lg p-3 ${
+                  selectedProblemId === problem.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                } ${editingProblemId === problem.id ? 'bg-yellow-50' : ''}`}
+              >
+                {editingProblemId === problem.id ? (
+                  <div className="space-y-2">
+                    <input
+                      type="text"
+                      value={newProblem.title}
+                      onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="문제 제목"
+                      className="w-full px-3 py-1 border border-gray-300 rounded"
+                    />
+                    <textarea
+                      value={newProblem.content}
+                      onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
+                      placeholder="문제 내용"
+                      className="w-full px-3 py-2 border border-gray-300 rounded"
+                      rows={3}
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newProblem.category}
+                        onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
+                        placeholder="카테고리 (선택)"
+                        className="flex-1 px-3 py-1 border border-gray-300 rounded"
+                      />
+                      <select
+                        value={newProblem.difficulty}
+                        onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
+                        className="px-3 py-1 border border-gray-300 rounded"
+                      >
+                        <option value="easy">쉬움</option>
+                        <option value="medium">보통</option>
+                        <option value="hard">어려움</option>
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => updateProblem(problem.id)}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
+                      >
+                        <Check size={16} />
+                        저장
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1"
+                      >
+                        <X size={16} />
+                        취소
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <h4 className="font-semibold text-gray-900">{problem.title}</h4>
+                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">{problem.content}</p>
+                        <div className="flex gap-2 mt-2">
+                          {problem.difficulty && (
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              problem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
+                              problem.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {problem.difficulty === 'easy' ? '쉬움' :
+                               problem.difficulty === 'medium' ? '보통' : '어려움'}
+                            </span>
+                          )}
+                          {problem.category && (
+                            <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs font-medium">
+                              {problem.category}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-1 ml-2">
+                        <button
+                          onClick={() => setSelectedProblemId(problem.id)}
+                          className={`p-1 rounded ${
+                            selectedProblemId === problem.id 
+                              ? 'bg-blue-600 text-white' 
+                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                          title="선택"
+                        >
+                          <Check size={16} />
+                        </button>
+                        <button
+                          onClick={() => startEditProblem(problem)}
+                          className="p-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                          title="편집"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => deleteProblem(problem.id)}
+                          className="p-1 bg-gray-100 text-red-600 rounded hover:bg-red-100"
+                          title="삭제"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Add New Problem Form */}
+        {isAddingProblem && (
+          <div className="mt-4 border-2 border-green-300 rounded-lg p-4 bg-green-50">
+            <h3 className="font-semibold text-gray-900 mb-3">새 문제 추가</h3>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={newProblem.title}
+                onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
+                placeholder="문제 제목"
+                className="w-full px-3 py-2 border border-gray-300 rounded"
+              />
+              <textarea
+                value={newProblem.content}
+                onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
+                placeholder="문제 내용"
+                className="w-full px-3 py-2 border border-gray-300 rounded"
+                rows={4}
+              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newProblem.category}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
+                  placeholder="카테고리 (선택)"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded"
+                />
+                <select
+                  value={newProblem.difficulty}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
+                  className="px-3 py-2 border border-gray-300 rounded"
+                >
+                  <option value="easy">쉬움</option>
+                  <option value="medium">보통</option>
+                  <option value="hard">어려움</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={addProblem}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
+                >
+                  <Plus size={16} />
+                  추가
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1"
+                >
+                  <X size={16} />
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
