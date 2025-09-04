@@ -639,14 +639,15 @@ const MathTutorDiagnostic: React.FC = () => {
   };
 
   return (
-    <div className="w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50 min-h-screen">
-      <div className="mb-4 sm:mb-6">
-        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-1 sm:gap-2">
-          <Brain className="text-blue-600" />
-          수학 교육용 LLM 진단 시스템 (Gemini 전용)
-        </h1>
-        <p className="text-gray-600 text-xs sm:text-sm">학생-LLM 대화형 진단 시스템</p>
-      </div>
+    <div className="w-full min-h-screen bg-gray-50 py-4 sm:py-6 lg:py-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="mb-4 sm:mb-6">
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-1 sm:gap-2">
+            <Brain className="text-blue-600" />
+            수학 교육용 LLM 진단 시스템 (Gemini 전용)
+          </h1>
+          <p className="text-gray-600 text-xs sm:text-sm">학생-LLM 대화형 진단 시스템</p>
+        </div>
 
       {showApiKeyInput ? (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 sm:p-4 mb-4 sm:mb-6">
@@ -698,7 +699,7 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 mb-4 sm:mb-6">
+      <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-5 mb-4 sm:mb-6">
         <div className="flex justify-between items-start mb-3">
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
             <BookOpen className="text-green-600" size={20} />
@@ -724,7 +725,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Current Problem Display */}
         {currentProblem && !showProblemManager && (
-          <div className="bg-blue-50 p-3 sm:p-4 rounded-lg">
+          <div className="bg-blue-50 p-4 sm:p-5 rounded-lg">
             <div className="flex justify-between items-start mb-2">
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{currentProblem.title}</h3>
               <div className="flex gap-2">
@@ -871,7 +872,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Add New Problem Form */}
         {isAddingProblem && (
-          <div className="mt-3 sm:mt-4 border-2 border-green-300 rounded-lg p-3 sm:p-4 bg-green-50">
+          <div className="mt-4 border-2 border-green-300 rounded-lg p-4 sm:p-5 bg-green-50">
             <h3 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">새 문제 추가</h3>
             <div className="space-y-2">
               <input
@@ -927,10 +928,10 @@ const MathTutorDiagnostic: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
         {/* Chat */}
         <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-3 sm:p-4 border-b bg-gray-50 rounded-t-lg">
+          <div className="p-4 sm:p-5 border-b bg-gray-50 rounded-t-lg">
             <div className="flex justify-between items-center">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
                 <MessageCircle className="text-blue-600" size={20} />
@@ -942,13 +943,13 @@ const MathTutorDiagnostic: React.FC = () => {
             </div>
           </div>
 
-          <div className="h-64 sm:h-80 lg:h-96 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
+          <div className="h-[400px] sm:h-[450px] lg:h-[500px] overflow-y-auto p-4 sm:p-5 space-y-3 sm:space-y-4">
             {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.type === 'student' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[75%] sm:max-w-xs lg:max-w-sm rounded-lg p-2 sm:p-3 ${
+                  className={`max-w-[75%] sm:max-w-xs xl:max-w-md rounded-lg p-3 sm:p-4 ${
                     message.isError
                       ? 'bg-red-100 text-red-800 border border-red-200'
                       : message.type === 'student'
@@ -995,28 +996,28 @@ const MathTutorDiagnostic: React.FC = () => {
             )}
           </div>
 
-          <div className="p-4 border-t bg-gray-50">
+          <div className="p-4 sm:p-5 border-t bg-gray-50">
             {/* 권장 다음 질문 버튼 */}
             {currentDiagnostic?.next_question && (
-              <div className="mb-2 flex items-center gap-2">
+              <div className="mb-3 flex items-center gap-2">
                 <button
-                  className="px-3 py-1 rounded bg-indigo-600 text-white text-xs flex items-center gap-1 hover:bg-indigo-700"
+                  className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs sm:text-sm flex items-center gap-1 hover:bg-indigo-700"
                   onClick={() => setCurrentInput((p) => (p ? p : currentDiagnostic.next_question))}
                   title="권장 질문을 입력창에 채우기"
                 >
                   <Wand2 className="w-4 h-4" /> 권장 다음 질문 넣기
                 </button>
-                <span className="text-xs text-gray-600 truncate">{currentDiagnostic.next_question}</span>
+                <span className="text-xs sm:text-sm text-gray-600 truncate">{currentDiagnostic.next_question}</span>
               </div>
             )}
 
-            <div className="flex gap-2 p-3 sm:p-4 border-t">
+            <div className="flex gap-3">
               <textarea
                 value={currentInput}
                 onChange={(e) => setCurrentInput(e.target.value)}
                 onKeyDown={handleKeyPress}
                 placeholder="학생 메시지를 입력하세요..."
-                className="flex-1 p-2 sm:p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black text-sm sm:text-base"
+                className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black text-sm sm:text-base"
                 rows={2}
                 disabled={isLoading}
                 aria-label="학생 메시지 입력"
@@ -1024,7 +1025,7 @@ const MathTutorDiagnostic: React.FC = () => {
               <button
                 onClick={handleSendMessage}
                 disabled={!currentInput.trim() || isLoading || !apiKey}
-                className="px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 text-sm sm:text-base"
                 aria-label="메시지 전송"
               >
                 <Send size={16} />
@@ -1036,16 +1037,16 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Diagnostic Panel */}
         <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-3 sm:p-4 border-b bg-gray-50 rounded-t-lg">
+          <div className="p-4 sm:p-5 border-b bg-gray-50 rounded-t-lg">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Brain className="text-purple-600" size={20} />
               실시간 진단 결과
             </h2>
           </div>
 
-          <div className="p-3 sm:p-4 h-64 sm:h-80 lg:h-96 overflow-y-auto">
+          <div className="p-4 sm:p-5 h-[400px] sm:h-[450px] lg:h-[500px] overflow-y-auto">
             {currentDiagnostic && (
-              <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
+              <div className="border-2 border-purple-200 rounded-lg p-4 sm:p-5 bg-purple-50 mb-4">
                 <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
                 <div className="mb-3">{stagePill(currentDiagnostic.recommended_stage)}</div>
 
@@ -1082,7 +1083,7 @@ const MathTutorDiagnostic: React.FC = () => {
                 {messages
                   .filter((m) => m.type === 'llm' && m.diagnostic)
                   .map((m) => (
-                    <div key={m.id} className="border rounded-lg p-4 bg-gray-50">
+                    <div key={m.id} className="border rounded-lg p-4 sm:p-5 bg-gray-50">
                       <div className="mb-3">
                         <div className="flex items-center gap-2 mb-2">
                           {stagePill(m.diagnostic!.recommended_stage)}
@@ -1112,7 +1113,7 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-6 bg-white rounded-lg shadow-sm border p-4">
+      <div className="mt-6 bg-white rounded-lg shadow-sm border p-4 sm:p-5">
         <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
           <Settings className="text-gray-600" size={20} />
           시스템 프롬프트 (폴리아 4단계 기반 진단)
@@ -1125,6 +1126,7 @@ const MathTutorDiagnostic: React.FC = () => {
 - Gemini는 responseMimeType=application/json + responseSchema 강제.
 - 수신 JSON은 런타임 검증(validateDiagnostic) 후 반영합니다.</pre>
         </div>
+      </div>
       </div>
     </div>
   );
