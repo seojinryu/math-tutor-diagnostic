@@ -639,17 +639,17 @@ const MathTutorDiagnostic: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+    <div className="w-full px-4 sm:px-6 lg:px-8 py-6 bg-gray-50 min-h-screen">
+      <div className="mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-1 sm:gap-2">
           <Brain className="text-blue-600" />
           수학 교육용 LLM 진단 시스템 (Gemini 전용)
         </h1>
-        <p className="text-gray-600">학생-LLM 대화형 진단 시스템</p>
+        <p className="text-gray-600 text-xs sm:text-sm">학생-LLM 대화형 진단 시스템</p>
       </div>
 
       {showApiKeyInput ? (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 sm:p-4 mb-4 sm:mb-6">
           <div className="flex items-center justify-between">
             <div className="flex">
               <div className="flex-shrink-0">
@@ -698,23 +698,23 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow-sm border p-4 mb-6">
+      <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 mb-4 sm:mb-6">
         <div className="flex justify-between items-start mb-3">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
             <BookOpen className="text-green-600" size={20} />
             문제 관리
           </h2>
           <div className="flex gap-2">
             <button
               onClick={() => setShowProblemManager(!showProblemManager)}
-              className="px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1 text-sm"
+              className="px-2 sm:px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1 text-xs sm:text-sm"
             >
               <List size={16} />
               {showProblemManager ? '닫기' : '문제 목록'} ({problems.length})
             </button>
             <button
               onClick={() => setIsAddingProblem(true)}
-              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
+              className="px-2 sm:px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-xs sm:text-sm"
             >
               <Plus size={16} />
               새 문제
@@ -724,9 +724,9 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Current Problem Display */}
         {currentProblem && !showProblemManager && (
-          <div className="bg-blue-50 p-4 rounded-lg">
+          <div className="bg-blue-50 p-3 sm:p-4 rounded-lg">
             <div className="flex justify-between items-start mb-2">
-              <h3 className="font-semibold text-gray-900">{currentProblem.title}</h3>
+              <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{currentProblem.title}</h3>
               <div className="flex gap-2">
                 {currentProblem.difficulty && (
                   <span className={`px-2 py-1 rounded text-xs font-medium ${
@@ -745,17 +745,17 @@ const MathTutorDiagnostic: React.FC = () => {
                 )}
               </div>
             </div>
-            <p className="text-gray-800 whitespace-pre-wrap">{currentProblem.content}</p>
+            <p className="text-gray-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
           </div>
         )}
 
         {/* Problem List */}
         {showProblemManager && (
-          <div className="space-y-2 mt-4">
+          <div className="space-y-2 mt-3 sm:mt-4">
             {problems.map((problem) => (
               <div
                 key={problem.id}
-                className={`border rounded-lg p-3 ${
+                className={`border rounded-lg p-2 sm:p-3 ${
                   selectedProblemId === problem.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
                 } ${editingProblemId === problem.id ? 'bg-yellow-50' : ''}`}
               >
@@ -766,13 +766,13 @@ const MathTutorDiagnostic: React.FC = () => {
                       value={newProblem.title}
                       onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
                       placeholder="문제 제목"
-                      className="w-full px-3 py-1 border border-gray-300 rounded"
+                      className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
                     />
                     <textarea
                       value={newProblem.content}
                       onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
                       placeholder="문제 내용"
-                      className="w-full px-3 py-2 border border-gray-300 rounded"
+                      className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
                       rows={3}
                     />
                     <div className="flex gap-2">
@@ -781,12 +781,12 @@ const MathTutorDiagnostic: React.FC = () => {
                         value={newProblem.category}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
                         placeholder="카테고리 (선택)"
-                        className="flex-1 px-3 py-1 border border-gray-300 rounded"
+                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
                       />
                       <select
                         value={newProblem.difficulty}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                        className="px-3 py-1 border border-gray-300 rounded"
+                        className="px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
                       >
                         <option value="easy">쉬움</option>
                         <option value="medium">보통</option>
@@ -796,14 +796,14 @@ const MathTutorDiagnostic: React.FC = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => updateProblem(problem.id)}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
+                        className="px-2 sm:px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
                       >
                         <Check size={16} />
                         저장
                       </button>
                       <button
                         onClick={cancelEdit}
-                        className="px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1"
+                        className="px-2 sm:px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1 text-sm"
                       >
                         <X size={16} />
                         취소
@@ -814,8 +814,8 @@ const MathTutorDiagnostic: React.FC = () => {
                   <div>
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
-                        <h4 className="font-semibold text-gray-900">{problem.title}</h4>
-                        <p className="text-sm text-gray-600 mt-1 line-clamp-2">{problem.content}</p>
+                        <h4 className="font-semibold text-gray-900 text-sm sm:text-base">{problem.title}</h4>
+                        <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">{problem.content}</p>
                         <div className="flex gap-2 mt-2">
                           {problem.difficulty && (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
@@ -871,8 +871,8 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Add New Problem Form */}
         {isAddingProblem && (
-          <div className="mt-4 border-2 border-green-300 rounded-lg p-4 bg-green-50">
-            <h3 className="font-semibold text-gray-900 mb-3">새 문제 추가</h3>
+          <div className="mt-3 sm:mt-4 border-2 border-green-300 rounded-lg p-3 sm:p-4 bg-green-50">
+            <h3 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">새 문제 추가</h3>
             <div className="space-y-2">
               <input
                 type="text"
@@ -894,12 +894,12 @@ const MathTutorDiagnostic: React.FC = () => {
                   value={newProblem.category}
                   onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
                   placeholder="카테고리 (선택)"
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded"
+                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
                 />
                 <select
                   value={newProblem.difficulty}
                   onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                  className="px-3 py-2 border border-gray-300 rounded"
+                  className="px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
                 >
                   <option value="easy">쉬움</option>
                   <option value="medium">보통</option>
@@ -909,14 +909,14 @@ const MathTutorDiagnostic: React.FC = () => {
               <div className="flex gap-2">
                 <button
                   onClick={addProblem}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1"
+                  className="px-3 sm:px-4 py-1 sm:py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
                 >
                   <Plus size={16} />
                   추가
                 </button>
                 <button
                   onClick={cancelEdit}
-                  className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1"
+                  className="px-3 sm:px-4 py-1 sm:py-2 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1 text-sm"
                 >
                   <X size={16} />
                   취소
@@ -927,28 +927,28 @@ const MathTutorDiagnostic: React.FC = () => {
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
         {/* Chat */}
         <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 border-b bg-gray-50 rounded-t-lg">
+          <div className="p-3 sm:p-4 border-b bg-gray-50 rounded-t-lg">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
                 <MessageCircle className="text-blue-600" size={20} />
                 학생-LLM 대화
               </h2>
-              <button onClick={clearChat} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1 rounded hover:bg-gray-100">
+              <button onClick={clearChat} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1 rounded hover:bg-gray-100">
                 대화 초기화
               </button>
             </div>
           </div>
 
-          <div className="h-96 overflow-y-auto p-4 space-y-4">
+          <div className="h-64 sm:h-80 lg:h-96 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
             {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.type === 'student' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-xs lg:max-w-sm rounded-lg p-3 ${
+                  className={`max-w-[75%] sm:max-w-xs lg:max-w-sm rounded-lg p-2 sm:p-3 ${
                     message.isError
                       ? 'bg-red-100 text-red-800 border border-red-200'
                       : message.type === 'student'
@@ -1010,13 +1010,13 @@ const MathTutorDiagnostic: React.FC = () => {
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 p-3 sm:p-4 border-t">
               <textarea
                 value={currentInput}
                 onChange={(e) => setCurrentInput(e.target.value)}
                 onKeyDown={handleKeyPress}
                 placeholder="학생 메시지를 입력하세요..."
-                className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black"
+                className="flex-1 p-2 sm:p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black text-sm sm:text-base"
                 rows={2}
                 disabled={isLoading}
                 aria-label="학생 메시지 입력"
@@ -1024,7 +1024,7 @@ const MathTutorDiagnostic: React.FC = () => {
               <button
                 onClick={handleSendMessage}
                 disabled={!currentInput.trim() || isLoading || !apiKey}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-3 sm:px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
                 aria-label="메시지 전송"
               >
                 <Send size={16} />
@@ -1036,14 +1036,14 @@ const MathTutorDiagnostic: React.FC = () => {
 
         {/* Diagnostic Panel */}
         <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 border-b bg-gray-50 rounded-t-lg">
+          <div className="p-3 sm:p-4 border-b bg-gray-50 rounded-t-lg">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <Brain className="text-purple-600" size={20} />
               실시간 진단 결과
             </h2>
           </div>
 
-          <div className="p-4 h-96 overflow-y-auto">
+          <div className="p-3 sm:p-4 h-64 sm:h-80 lg:h-96 overflow-y-auto">
             {currentDiagnostic && (
               <div className="border-2 border-purple-200 rounded-lg p-4 bg-purple-50 mb-4">
                 <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
