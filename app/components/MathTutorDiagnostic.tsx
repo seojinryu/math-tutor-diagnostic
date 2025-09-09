@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, Wand2, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
 
 /**********************
  * Types
@@ -1208,20 +1208,6 @@ const MathTutorDiagnostic: React.FC = () => {
           </div>
 
           <div className="p-4 sm:p-5 border-t bg-gray-50">
-            {/* 권장 다음 질문 버튼 */}
-            {currentDiagnostic?.next_question && (
-              <div className="mb-3 flex items-center gap-2">
-                <button
-                  className="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs sm:text-sm flex items-center gap-1 hover:bg-indigo-700"
-                  onClick={() => setCurrentInput((p) => (p ? p : currentDiagnostic.next_question))}
-                  title="권장 질문을 입력창에 채우기"
-                >
-                  <Wand2 className="w-4 h-4" /> 권장 다음 질문 넣기
-                </button>
-                <span className="text-xs sm:text-sm text-gray-600 truncate">{currentDiagnostic.next_question}</span>
-              </div>
-            )}
-
             <div className="flex gap-3">
               <textarea
                 value={currentInput}
