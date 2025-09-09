@@ -386,10 +386,8 @@ const MathTutorDiagnostic: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [rememberKey, setRememberKey] = useState(false);
+  const [apiKey] = useState(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(true);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [showProblemManager, setShowProblemManager] = useState(false);
   const [isAddingProblem, setIsAddingProblem] = useState(false);
@@ -461,38 +459,8 @@ const MathTutorDiagnostic: React.FC = () => {
     localStorage.setItem('math_tutor_problems', JSON.stringify(problems));
   }, [problems]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const storedLocal = localStorage.getItem(`gemini_api_key`);
-    const storedSession = sessionStorage.getItem(`gemini_api_key`);
-    const stored = storedLocal ?? storedSession ?? '';
-    if (stored) {
-      setApiKey(stored);
-      setShowApiKeyInput(false);
-      setRememberKey(Boolean(storedLocal));
-    } else {
-      setApiKey('');
-      setShowApiKeyInput(true);
-      setRememberKey(false);
-    }
-  }, []);
 
-  const saveApiKey = () => {
-    if (!apiKey.trim() || typeof window === 'undefined') return;
-    localStorage.removeItem(`gemini_api_key`);
-    sessionStorage.removeItem(`gemini_api_key`);
-    if (rememberKey) localStorage.setItem(`gemini_api_key`, apiKey.trim());
-    else sessionStorage.setItem(`gemini_api_key`, apiKey.trim());
-    setShowApiKeyInput(false);
-  };
-
-  const clearApiKey = () => {
-    if (typeof window === 'undefined') return;
-    localStorage.removeItem(`gemini_api_key`);
-    sessionStorage.removeItem(`gemini_api_key`);
-    setApiKey('');
-    setShowApiKeyInput(true);
-  };
+  // API 키 관련 함수들은 더 이상 필요하지 않음
 
   const clearChat = () => {
     setMessages([]);
@@ -725,55 +693,7 @@ const MathTutorDiagnostic: React.FC = () => {
           <p className="text-gray-600 text-xs sm:text-sm">학생-LLM 대화형 진단 시스템</p>
         </div>
 
-      {showApiKeyInput ? (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 sm:p-4 mb-4 sm:mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <Key className="h-5 w-5 text-yellow-400" />
-              </div>
-              <div className="ml-3 flex-1">
-                <p className="text-sm text-yellow-700">LLM API를 사용하려면 Google Gemini API 키를 입력하세요.</p>
-                <div className="mt-3 flex items-center gap-3 flex-wrap">
-                  <input
-                    type="password"
-                    placeholder="Google Gemini API 키"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value.trim())}
-                    className="border border-gray-300 rounded px-3 py-1 text-sm flex-1 min-w-[260px] max-w-md"
-                    aria-label="API 키 입력"
-                  />
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
-                    <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} />
-                    이 브라우저에 저장하기
-                  </label>
-                  <button onClick={saveApiKey} className="bg-yellow-600 text-white px-4 py-1 rounded text-sm hover:bg-yellow-700">
-                    저장
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-green-50 border-l-4 border-green-400 p-3 mb-6 flex justify-between items-center">
-          <div className="flex items-center">
-            <Key className="h-4 w-4 text-green-400 mr-2" />
-            <span className="text-sm text-green-700">
-              Google Gemini API 키가 설정되었습니다.
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} />
-              이 브라우저에 저장하기
-            </label>
-            <button onClick={clearApiKey} className="text-sm text-green-600 hover:text-green-800">
-              API 키 변경
-            </button>
-          </div>
-        </div>
-      )}
+      {/* API 키가 환경변수로 설정되어 있으므로 UI에서 제거 */}
 
       <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-5 mb-4 sm:mb-6">
         <div className="flex justify-between items-start mb-3">
