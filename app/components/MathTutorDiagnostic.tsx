@@ -1263,7 +1263,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
                 <div className="bg-white rounded p-3">
                   <h4 className="font-medium text-black mb-2">실시간 JSON</h4>
-                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto text-black">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
+                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-hidden whitespace-pre-wrap break-words text-black">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
                 </div>
               </div>
             )}
@@ -1300,7 +1300,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
                       <div className="bg-white rounded p-3">
                         <h4 className="font-medium text-black mb-2">JSON 출력</h4>
-                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto text-black">{JSON.stringify(m.diagnostic, null, 2)}</pre>
+                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-hidden whitespace-pre-wrap break-words text-black">{JSON.stringify(m.diagnostic, null, 2)}</pre>
                       </div>
                     </div>
                   ))}
