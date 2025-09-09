@@ -1154,7 +1154,7 @@ const MathTutorDiagnostic: React.FC = () => {
             </div>
           </div>
 
-          <div className="h-[400px] sm:h-[450px] lg:h-[500px] overflow-y-auto p-4 sm:p-5 space-y-3 sm:space-y-4">
+          <div className="h-[500px] sm:h-[550px] lg:h-[600px] overflow-y-auto p-4 sm:p-5 space-y-3 sm:space-y-4">
             {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
@@ -1255,7 +1255,7 @@ const MathTutorDiagnostic: React.FC = () => {
             </h2>
           </div>
 
-          <div className="p-4 sm:p-5 h-[400px] sm:h-[450px] lg:h-[500px] overflow-y-auto">
+          <div className="p-4 sm:p-5 h-[500px] sm:h-[550px] lg:h-[600px] overflow-y-auto">
             {currentDiagnostic && (
               <div className="border-2 border-purple-200 rounded-lg p-4 sm:p-5 bg-purple-50 mb-4">
                 <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
@@ -1324,20 +1324,7 @@ const MathTutorDiagnostic: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-6 bg-white rounded-lg shadow-sm border p-4 sm:p-5">
-        <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
-          <Settings className="text-gray-600" size={20} />
-          시스템 프롬프트 (폴리아 4단계 기반 진단)
-        </h3>
-        <div className="bg-gray-50 rounded-lg p-4">
-          <pre className="text-sm text-gray-700 whitespace-pre-wrap overflow-x-auto">{SYSTEM_PROMPT_BASE}
-
-[실행 정책]
-- 응답은 가능한 한 JSON만 받습니다.
-- Gemini는 responseMimeType=application/json + responseSchema 강제.
-- 수신 JSON은 런타임 검증(validateDiagnostic) 후 반영합니다.</pre>
-        </div>
-      </div>
+      {/* 시스템 프롬프트 UI 섹션 제거 - 프롬프트 내용은 코드에 유지 */}
       </div>
     </div>
   );
