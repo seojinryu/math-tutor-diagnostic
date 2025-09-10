@@ -11,6 +11,8 @@ export interface Problem {
   content: string;
   imageUrl?: string;
   category?: string;
+  grade?: string;
+  unit?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
   updatedAt: string;
@@ -401,6 +403,8 @@ const MathTutorDiagnostic: React.FC = () => {
     title: '',
     content: '',
     category: '',
+    grade: '',
+    unit: '',
     difficulty: 'medium'
   });
 
@@ -484,6 +488,8 @@ const MathTutorDiagnostic: React.FC = () => {
       content: newProblem.content?.trim() || '',
       imageUrl: newProblem.imageUrl,
       category: newProblem.category?.trim() || '',
+      grade: newProblem.grade?.trim() || '',
+      unit: newProblem.unit?.trim() || '',
       difficulty: newProblem.difficulty || 'medium',
       createdAt: nowTime(),
       updatedAt: nowTime()
@@ -496,6 +502,8 @@ const MathTutorDiagnostic: React.FC = () => {
       content: '',
       imageUrl: undefined,
       category: '',
+      grade: '',
+      unit: '',
       difficulty: 'medium'
     });
     setIsAddingProblem(false);
@@ -526,6 +534,8 @@ const MathTutorDiagnostic: React.FC = () => {
             content: newProblem.content?.trim() || '',
             imageUrl: newProblem.imageUrl,
             category: newProblem.category?.trim() || '',
+            grade: newProblem.grade?.trim() || '',
+            unit: newProblem.unit?.trim() || '',
             difficulty: newProblem.difficulty || 'medium',
             updatedAt: nowTime()
           }
@@ -538,6 +548,8 @@ const MathTutorDiagnostic: React.FC = () => {
       content: '',
       imageUrl: undefined,
       category: '',
+      grade: '',
+      unit: '',
       difficulty: 'medium'
     });
     setInputMode('text');
@@ -572,6 +584,8 @@ const MathTutorDiagnostic: React.FC = () => {
       content: problem.content,
       imageUrl: problem.imageUrl,
       category: problem.category,
+      grade: problem.grade,
+      unit: problem.unit,
       difficulty: problem.difficulty
     });
     if (problem.imageUrl) {
@@ -590,6 +604,8 @@ const MathTutorDiagnostic: React.FC = () => {
       content: '',
       imageUrl: undefined,
       category: '',
+      grade: '',
+      unit: '',
       difficulty: 'medium'
     });
     setInputMode('text');
@@ -724,7 +740,17 @@ const MathTutorDiagnostic: React.FC = () => {
           <div className="bg-blue-50 p-4 sm:p-5 rounded-lg">
             <div className="flex justify-between items-start mb-2">
               <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{currentProblem.title}</h3>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
+                {currentProblem.grade && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                    {currentProblem.grade}
+                  </span>
+                )}
+                {currentProblem.unit && (
+                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
+                    {currentProblem.unit}
+                  </span>
+                )}
                 {currentProblem.difficulty && (
                   <span className={`px-2 py-1 rounded text-xs font-medium ${
                     currentProblem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
@@ -878,6 +904,22 @@ const MathTutorDiagnostic: React.FC = () => {
                     <div className="flex gap-2">
                       <input
                         type="text"
+                        value={newProblem.grade}
+                        onChange={(e) => setNewProblem(prev => ({ ...prev, grade: e.target.value }))}
+                        placeholder="학년 (예: 중1, 고2)"
+                        className="w-24 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                      />
+                      <input
+                        type="text"
+                        value={newProblem.unit}
+                        onChange={(e) => setNewProblem(prev => ({ ...prev, unit: e.target.value }))}
+                        placeholder="단원명"
+                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
                         value={newProblem.category}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
                         placeholder="카테고리 (선택)"
@@ -929,7 +971,17 @@ const MathTutorDiagnostic: React.FC = () => {
                         ) : (
                           <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">{problem.content}</p>
                         )}
-                        <div className="flex gap-2 mt-2">
+                        <div className="flex gap-2 mt-2 flex-wrap">
+                          {problem.grade && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium">
+                              {problem.grade}
+                            </span>
+                          )}
+                          {problem.unit && (
+                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
+                              {problem.unit}
+                            </span>
+                          )}
                           {problem.difficulty && (
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                               problem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
@@ -1100,6 +1152,22 @@ const MathTutorDiagnostic: React.FC = () => {
                   )}
                 </div>
               )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newProblem.grade}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, grade: e.target.value }))}
+                  placeholder="학년 (예: 중1, 고2)"
+                  className="w-28 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
+                />
+                <input
+                  type="text"
+                  value={newProblem.unit}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, unit: e.target.value }))}
+                  placeholder="단원명"
+                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
+                />
+              </div>
               <div className="flex gap-2">
                 <input
                   type="text"
