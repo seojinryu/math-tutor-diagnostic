@@ -1,7 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText, Download } from 'lucide-react';
-import jsPDF from 'jspdf';
+import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
 
 /**********************
  * Types
@@ -468,126 +467,6 @@ const MathTutorDiagnostic: React.FC = () => {
     setCurrentDiagnostic(null);
   };
 
-  const exportToPDF = () => {
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageHeight = pdf.internal.pageSize.height;
-    let yPosition = 20;
-    
-    // PDF 제목
-    pdf.setFontSize(18);
-    pdf.text('수학 교육용 LLM 진단 리포트', 105, yPosition, { align: 'center' });
-    yPosition += 15;
-    
-    // 문제 정보
-    if (currentProblem) {
-      pdf.setFontSize(14);
-      pdf.text('문제 정보', 20, yPosition);
-      yPosition += 10;
-      
-      pdf.setFontSize(10);
-      pdf.text(`제목: ${currentProblem.title}`, 25, yPosition);
-      yPosition += 7;
-      
-      if (!currentProblem.imageUrl) {
-        const lines = pdf.splitTextToSize(`내용: ${currentProblem.content}`, 160);
-        lines.forEach((line: string) => {
-          if (yPosition > pageHeight - 20) {
-            pdf.addPage();
-            yPosition = 20;
-          }
-          pdf.text(line, 25, yPosition);
-          yPosition += 7;
-        });
-      }
-      
-      if (currentProblem.category) {
-        pdf.text(`카테고리: ${currentProblem.category}`, 25, yPosition);
-        yPosition += 7;
-      }
-      
-      if (currentProblem.difficulty) {
-        const difficultyText = currentProblem.difficulty === 'easy' ? '쉬움' : 
-                               currentProblem.difficulty === 'medium' ? '보통' : '어려움';
-        pdf.text(`난이도: ${difficultyText}`, 25, yPosition);
-        yPosition += 7;
-      }
-      
-      yPosition += 10;
-    }
-    
-    // 대화 내용
-    pdf.setFontSize(14);
-    pdf.text('대화 내용', 20, yPosition);
-    yPosition += 10;
-    
-    messages.forEach((msg) => {
-      if (yPosition > pageHeight - 30) {
-        pdf.addPage();
-        yPosition = 20;
-      }
-      
-      pdf.setFontSize(10);
-      const sender = msg.type === 'student' ? '학생' : 'LLM';
-      pdf.setFont(undefined, 'bold');
-      pdf.text(`[${sender}] ${msg.timestamp}`, 25, yPosition);
-      pdf.setFont(undefined, 'normal');
-      yPosition += 7;
-      
-      const lines = pdf.splitTextToSize(msg.content, 160);
-      lines.forEach((line: string) => {
-        if (yPosition > pageHeight - 20) {
-          pdf.addPage();
-          yPosition = 20;
-        }
-        pdf.text(line, 25, yPosition);
-        yPosition += 7;
-      });
-      
-      // 진단 결과 추가
-      if (msg.diagnostic) {
-        yPosition += 5;
-        pdf.setFont(undefined, 'bold');
-        pdf.text('진단 결과:', 30, yPosition);
-        pdf.setFont(undefined, 'normal');
-        yPosition += 7;
-        
-        const diagnosis = msg.diagnostic.diagnosis;
-        pdf.text(`• 문제 이해도: ${diagnosis.problem_understanding}`, 35, yPosition);
-        yPosition += 7;
-        pdf.text(`• 개념 지식: ${diagnosis.concept_knowledge}`, 35, yPosition);
-        yPosition += 7;
-        pdf.text(`• 오류 패턴: ${diagnosis.error_pattern}`, 35, yPosition);
-        yPosition += 7;
-        pdf.text(`• 학습 스타일: ${diagnosis.learning_style}`, 35, yPosition);
-        yPosition += 7;
-        pdf.text(`• 자신감: ${diagnosis.confidence_level}`, 35, yPosition);
-        yPosition += 7;
-        pdf.text(`• 추천 단계: ${msg.diagnostic.recommended_stage}단계`, 35, yPosition);
-        yPosition += 7;
-        
-        const reasonLines = pdf.splitTextToSize(`• 추천 이유: ${msg.diagnostic.stage_reason}`, 150);
-        reasonLines.forEach((line: string) => {
-          if (yPosition > pageHeight - 20) {
-            pdf.addPage();
-            yPosition = 20;
-          }
-          pdf.text(line, 35, yPosition);
-          yPosition += 7;
-        });
-      }
-      
-      yPosition += 10;
-    });
-    
-    // 생성 시간 추가
-    pdf.setFontSize(8);
-    pdf.text(`생성 시간: ${nowTime()}`, 20, pdf.internal.pageSize.height - 10);
-    
-    // PDF 저장
-    const fileName = `진단리포트_${currentProblem?.title || '미지정'}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    pdf.save(fileName);
-  };
-
   const addProblem = () => {
     if (!newProblem.title?.trim()) {
       alert('문제 제목을 입력해주세요.');
@@ -897,7 +776,7 @@ const MathTutorDiagnostic: React.FC = () => {
                       value={newProblem.title}
                       onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
                       placeholder="문제 제목"
-                      className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
+                      className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
                     />
                     
                     {/* 입력 방식 선택 탭 */}
@@ -931,7 +810,7 @@ const MathTutorDiagnostic: React.FC = () => {
                         value={newProblem.content}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
                         placeholder="문제 내용"
-                        className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
+                        className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
                         rows={3}
                       />
                     ) : (
@@ -1002,12 +881,12 @@ const MathTutorDiagnostic: React.FC = () => {
                         value={newProblem.category}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
                         placeholder="카테고리 (선택)"
-                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
+                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
                       />
                       <select
                         value={newProblem.difficulty}
                         onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                        className="px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm"
+                        className="px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
                       >
                         <option value="easy">쉬움</option>
                         <option value="medium">보통</option>
@@ -1113,7 +992,7 @@ const MathTutorDiagnostic: React.FC = () => {
                 value={newProblem.title}
                 onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
                 placeholder="문제 제목"
-                className="w-full px-3 py-2 border border-gray-300 rounded"
+                className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
               />
               
               {/* 입력 방식 선택 탭 */}
@@ -1148,7 +1027,7 @@ const MathTutorDiagnostic: React.FC = () => {
                   value={newProblem.content}
                   onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
                   placeholder="문제 내용을 입력하세요"
-                  className="w-full px-3 py-2 border border-gray-300 rounded"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
                   rows={4}
                 />
               ) : (
@@ -1227,12 +1106,12 @@ const MathTutorDiagnostic: React.FC = () => {
                   value={newProblem.category}
                   onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
                   placeholder="카테고리 (선택)"
-                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
+                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
                 />
                 <select
                   value={newProblem.difficulty}
                   onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                  className="px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm"
+                  className="px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
                 >
                   <option value="easy">쉬움</option>
                   <option value="medium">보통</option>
@@ -1269,19 +1148,9 @@ const MathTutorDiagnostic: React.FC = () => {
                 <MessageCircle className="text-blue-600" size={20} />
                 학생-LLM 대화
               </h2>
-              <div className="flex gap-2">
-                <button 
-                  onClick={exportToPDF} 
-                  className="text-xs sm:text-sm text-blue-600 hover:text-blue-800 px-2 sm:px-3 py-1 rounded hover:bg-blue-50 flex items-center gap-1"
-                  title="PDF로 내보내기"
-                >
-                  <Download size={16} />
-                  PDF 저장
-                </button>
-                <button onClick={clearChat} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1 rounded hover:bg-gray-100">
-                  대화 초기화
-                </button>
-              </div>
+              <button onClick={clearChat} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1 rounded hover:bg-gray-100">
+                대화 초기화
+              </button>
             </div>
           </div>
 
