@@ -388,7 +388,7 @@ const MathTutorDiagnostic: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKey] = useState(process.env.NEXT_PUBLIC_GEMINI_API_KEY || '');
+  const [apiKey, setApiKey] = useState('');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [showProblemManager, setShowProblemManager] = useState(false);
@@ -464,7 +464,24 @@ const MathTutorDiagnostic: React.FC = () => {
   }, [problems]);
 
 
-  // API 키 관련 함수들은 더 이상 필요하지 않음
+  // 환경변수에서 API 키 로드
+  useEffect(() => {
+    // 먼저 환경변수 직접 확인
+    const envApiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    if (envApiKey) {
+      setApiKey(envApiKey);
+    } else {
+      // API 엔드포인트에서 가져오기
+      fetch('/api/config')
+        .then(res => res.json())
+        .then(data => {
+          if (data.apiKey) {
+            setApiKey(data.apiKey);
+          }
+        })
+        .catch(err => console.error('Failed to load API key:', err));
+    }
+  }, []);
 
   const clearChat = () => {
     setMessages([]);
