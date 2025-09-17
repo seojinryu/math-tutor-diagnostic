@@ -29,6 +29,7 @@ export interface DiagnosticData {
   recommended_stage: '1' | '2' | '3' | '4';
   stage_reason: string;
   next_question: string;
+  feedback_completed: boolean;
 }
 
 export interface Message {
@@ -179,6 +180,7 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
   if (!isEnum(o.recommended_stage, ['1', '2', '3', '4'] as const)) throw new Error('recommended_stage 값 오류');
   if (typeof o.stage_reason !== 'string') throw new Error('stage_reason은 문자열이어야 합니다.');
   if (typeof o.next_question !== 'string') throw new Error('next_question은 문자열이어야 합니다.');
+  if (typeof o.feedback_completed !== 'boolean') throw new Error('feedback_completed는 boolean이어야 합니다.');
 }
 
 /**********************
@@ -216,10 +218,12 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
 
 3. **다음 질문 제안**:
    - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?") 
+   - 4단계(되돌아보기)는 LLM이 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
 
-4. **4단계(되돌아보기) 간소화**:
-   - LLM이 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
-   - 4단계가 끝나면 5. 완료 단계로 판단하고, 세션을 마무리한다.
+5. **피드백 완료 여부 판단**:
+   - 학생이 충분한 피드백을 받았는지 여부 판단 (예: "더 이상 질문이 없고, 학생이 문제를 이해한 것으로 보임")
+   - "true" 또는 "false"로 응답
+
 
 ### **출력 형식**
 {
@@ -232,7 +236,8 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
   },
   "recommended_stage": "1/2/3/4",
   "stage_reason": "추천 이유 설명",
-  "next_question": "학생에게 제안할 질문 또는 힌트"
+  "next_question": "학생에게 제안할 질문 또는 힌트",
+  "feedback_completed": "true/false"
 }`;
 
 const SYSTEM_PROMPT_JSON_ONLY = `${SYSTEM_PROMPT_BASE}
@@ -280,9 +285,10 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMes
       },
       recommended_stage: { type: "STRING", enum: ["1","2","3","4"] },
       stage_reason:      { type: "STRING" },
-      next_question:     { type: "STRING" }
+      next_question:     { type: "STRING" },
+      feedback_completed: { type: "BOOLEAN" }
     },
-    required: ["diagnosis","recommended_stage","stage_reason","next_question"]
+    required: ["diagnosis","recommended_stage","stage_reason","next_question","feedback_completed"]
   } as const;
 
   // 이미지가 있는 경우와 없는 경우를 구분하여 처리
