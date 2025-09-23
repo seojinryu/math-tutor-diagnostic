@@ -336,7 +336,10 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMes
       temperature: 0,
       maxOutputTokens: 8192,
       responseMimeType: "application/json",
-      responseSchema
+      responseSchema,
+      thinkingConfig: {
+        thinkingBudget: 500
+      }
     }
   };
 
