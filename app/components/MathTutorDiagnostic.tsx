@@ -338,7 +338,7 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMes
       responseMimeType: "application/json",
       responseSchema,
       thinkingConfig: {
-        thinkingBudget: 500
+        thinkingBudget: 1024
       }
     }
   };
