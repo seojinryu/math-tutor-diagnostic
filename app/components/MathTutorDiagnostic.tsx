@@ -25,7 +25,6 @@ export interface DiagnosticData {
     problem_understanding: 'low' | 'medium' | 'high';
     concept_knowledge: 'low' | 'medium' | 'high';
     error_pattern: 'none' | 'calculation_error' | 'logical_error' | 'concept_confusion' | 'approach_error';
-    learning_style: 'visual' | 'logical' | 'experimental' | 'unknown';
     confidence_level: 'low' | 'medium' | 'high';
   };
   recommended_stage: '1' | '2' | '3' | '4';
@@ -177,7 +176,6 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
   if (!isEnum(d.problem_understanding, ['low', 'medium', 'high'] as const)) throw new Error('problem_understanding 값 오류');
   if (!isEnum(d.concept_knowledge, ['low', 'medium', 'high'] as const)) throw new Error('concept_knowledge 값 오류');
   if (!isEnum(d.error_pattern, ['none', 'calculation_error', 'logical_error', 'concept_confusion', 'approach_error'] as const)) throw new Error('error_pattern 값 오류');
-  if (!isEnum(d.learning_style, ['visual', 'logical', 'experimental', 'unknown'] as const)) throw new Error('learning_style 값 오류');
   if (!isEnum(d.confidence_level, ['low', 'medium', 'high'] as const)) throw new Error('confidence_level 값 오류');
   if (!isEnum(o.recommended_stage, ['1', '2', '3', '4'] as const)) throw new Error('recommended_stage 값 오류');
   if (typeof o.stage_reason !== 'string') throw new Error('stage_reason은 문자열이어야 합니다.');
@@ -235,7 +233,6 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
     "problem_understanding": "low/medium/high",
     "concept_knowledge": "low/medium/high",
     "error_pattern": "none/calculation_error/logical_error/concept_confusion/approach_error",
-    "learning_style": "visual/logical/experimental/unknown",
     "confidence_level": "low/medium/high"
   },
   "recommended_stage": "1/2/3/4",
@@ -282,10 +279,9 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, explana
           problem_understanding: { type: "STRING", enum: ["low","medium","high"] },
           concept_knowledge:    { type: "STRING", enum: ["low","medium","high"] },
           error_pattern:        { type: "STRING", enum: ["none","calculation_error","logical_error","concept_confusion","approach_error"] },
-          learning_style:       { type: "STRING", enum: ["visual","logical","experimental","unknown"] },
           confidence_level:     { type: "STRING", enum: ["low","medium","high"] }
         },
-        required: ["problem_understanding","concept_knowledge","error_pattern","learning_style","confidence_level"]
+        required: ["problem_understanding","concept_knowledge","error_pattern","confidence_level"]
       },
       recommended_stage: { type: "STRING", enum: ["1","2","3","4"] },
       stage_reason:      { type: "STRING" },
