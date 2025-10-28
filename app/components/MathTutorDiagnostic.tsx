@@ -325,12 +325,12 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, explana
 
   if (problemImage && explanationImage) {
     textContent += `- 문제: 첫 번째 이미지를 참고하세요. ${problem}\n`;
-    textContent += `- 해설: 두 번째 이미지를 참고하세요. 이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
+    textContent += `- 해설: 두 번째 이미지를 참고하세요.\n`;
   } else if (problemImage) {
     textContent += `- 문제: 위 이미지를 참고하세요. ${problem}\n`;
   } else if (explanationImage) {
     textContent += `- 문제: ${problem}\n`;
-    textContent += `- 해설: 위 이미지를 참고하세요. 이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
+    textContent += `- 해설: 위 이미지를 참고하세요.\n`;
   } else {
     textContent += `- 문제: ${problem}\n`;
   }
@@ -338,7 +338,6 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, explana
   // 해설 텍스트가 있는 경우 추가
   if (explanationText) {
     textContent += `- 해설 (텍스트): ${explanationText}\n`;
-    textContent += `  이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
   }
 
   textContent += `- 학생 응답: ${userMessage}\n`;
