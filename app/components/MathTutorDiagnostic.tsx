@@ -10,6 +10,8 @@ export interface Problem {
   title: string;
   content: string;
   imageUrl?: string;
+  explanationImageUrl?: string;
+  explanationText?: string;
   category?: string;
   grade?: string;
   unit?: string;
@@ -191,6 +193,8 @@ interface ProviderArgs {
   systemPrompt: string;
   problem: string;
   problemImage?: string;
+  explanationImage?: string;
+  explanationText?: string;
   userMessage: string;
   context: string;
   signal?: AbortSignal;
@@ -268,7 +272,7 @@ interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates
 /**********************
  * Provider Call (Gemini)
  **********************/
-async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
+async function callGemini({ apiKey, systemPrompt, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
   const responseSchema = {
     type: "OBJECT",
     properties: {
@@ -293,9 +297,9 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMes
 
   // 이미지가 있는 경우와 없는 경우를 구분하여 처리
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
-  
+
+  // 문제 이미지가 있는 경우 추가
   if (problemImage) {
-    // 이미지가 있는 경우: 이미지와 텍스트를 함께 전송
     const base64Data = problemImage.split(',')[1]; // data:image/png;base64, 부분 제거
     userParts.push({
       inlineData: {
@@ -303,23 +307,46 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, userMes
         data: base64Data
       }
     });
+  }
+
+  // 해설 이미지가 있는 경우 추가
+  if (explanationImage) {
+    const base64Data = explanationImage.split(',')[1]; // data:image/png;base64, 부분 제거
     userParts.push({
-      text:
-        `### 실제 입력 데이터\n` +
-        `- 문제: 위 이미지를 참고하세요. ${problem}\n` +
-        `- 학생 응답: ${userMessage}\n` +
-        `- 컨텍스트: ${context}`
-    });
-  } else {
-    // 텍스트만 있는 경우
-    userParts.push({
-      text:
-        `### 실제 입력 데이터\n` +
-        `- 문제: ${problem}\n` +
-        `- 학생 응답: ${userMessage}\n` +
-        `- 컨텍스트: ${context}`
+      inlineData: {
+        mimeType: explanationImage.split(':')[1].split(';')[0], // image/png, image/jpeg 등
+        data: base64Data
+      }
     });
   }
+
+  // 텍스트 부분 구성
+  let textContent = `### 실제 입력 데이터\n`;
+
+  if (problemImage && explanationImage) {
+    textContent += `- 문제: 첫 번째 이미지를 참고하세요. ${problem}\n`;
+    textContent += `- 해설: 두 번째 이미지를 참고하세요. 이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
+  } else if (problemImage) {
+    textContent += `- 문제: 위 이미지를 참고하세요. ${problem}\n`;
+  } else if (explanationImage) {
+    textContent += `- 문제: ${problem}\n`;
+    textContent += `- 해설: 위 이미지를 참고하세요. 이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
+  } else {
+    textContent += `- 문제: ${problem}\n`;
+  }
+
+  // 해설 텍스트가 있는 경우 추가
+  if (explanationText) {
+    textContent += `- 해설 (텍스트): ${explanationText}\n`;
+    textContent += `  이 해설 내용도 학생의 응답을 분석할 때 고려해주세요.\n`;
+  }
+
+  textContent += `- 학생 응답: ${userMessage}\n`;
+  textContent += `- 컨텍스트: ${context}`;
+
+  userParts.push({
+    text: textContent
+  });
 
   const body = {
     systemInstruction: {
@@ -406,7 +433,10 @@ const MathTutorDiagnostic: React.FC = () => {
   const [inputMode, setInputMode] = useState<'text' | 'image'>('text');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [explanationImageFile, setExplanationImageFile] = useState<File | null>(null);
+  const [explanationImagePreview, setExplanationImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const explanationFileInputRef = useRef<HTMLInputElement>(null);
   
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
@@ -513,6 +543,8 @@ const MathTutorDiagnostic: React.FC = () => {
       title: newProblem.title.trim(),
       content: newProblem.content?.trim() || '',
       imageUrl: newProblem.imageUrl,
+      explanationImageUrl: newProblem.explanationImageUrl,
+      explanationText: newProblem.explanationText?.trim() || undefined,
       category: newProblem.category?.trim() || '',
       grade: newProblem.grade?.trim() || '',
       unit: newProblem.unit?.trim() || '',
@@ -527,6 +559,8 @@ const MathTutorDiagnostic: React.FC = () => {
       title: '',
       content: '',
       imageUrl: undefined,
+      explanationImageUrl: undefined,
+      explanationText: undefined,
       category: '',
       grade: '',
       unit: '',
@@ -536,8 +570,13 @@ const MathTutorDiagnostic: React.FC = () => {
     setInputMode('text');
     setImageFile(null);
     setImagePreview(null);
+    setExplanationImageFile(null);
+    setExplanationImagePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    if (explanationFileInputRef.current) {
+      explanationFileInputRef.current.value = '';
     }
   };
 
@@ -552,13 +591,15 @@ const MathTutorDiagnostic: React.FC = () => {
       return;
     }
 
-    setProblems(prev => prev.map(p => 
-      p.id === problemId 
+    setProblems(prev => prev.map(p =>
+      p.id === problemId
         ? {
             ...p,
             title: newProblem.title!.trim(),
             content: newProblem.content?.trim() || '',
             imageUrl: newProblem.imageUrl,
+            explanationImageUrl: newProblem.explanationImageUrl,
+            explanationText: newProblem.explanationText?.trim() || undefined,
             category: newProblem.category?.trim() || '',
             grade: newProblem.grade?.trim() || '',
             unit: newProblem.unit?.trim() || '',
@@ -573,6 +614,8 @@ const MathTutorDiagnostic: React.FC = () => {
       title: '',
       content: '',
       imageUrl: undefined,
+      explanationImageUrl: undefined,
+      explanationText: undefined,
       category: '',
       grade: '',
       unit: '',
@@ -581,8 +624,13 @@ const MathTutorDiagnostic: React.FC = () => {
     setInputMode('text');
     setImageFile(null);
     setImagePreview(null);
+    setExplanationImageFile(null);
+    setExplanationImagePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    if (explanationFileInputRef.current) {
+      explanationFileInputRef.current.value = '';
     }
   };
 
@@ -609,6 +657,8 @@ const MathTutorDiagnostic: React.FC = () => {
       title: problem.title,
       content: problem.content,
       imageUrl: problem.imageUrl,
+      explanationImageUrl: problem.explanationImageUrl,
+      explanationText: problem.explanationText,
       category: problem.category,
       grade: problem.grade,
       unit: problem.unit,
@@ -620,6 +670,9 @@ const MathTutorDiagnostic: React.FC = () => {
     } else {
       setInputMode('text');
     }
+    if (problem.explanationImageUrl) {
+      setExplanationImagePreview(problem.explanationImageUrl);
+    }
   };
 
   const cancelEdit = () => {
@@ -629,6 +682,8 @@ const MathTutorDiagnostic: React.FC = () => {
       title: '',
       content: '',
       imageUrl: undefined,
+      explanationImageUrl: undefined,
+      explanationText: undefined,
       category: '',
       grade: '',
       unit: '',
@@ -637,8 +692,13 @@ const MathTutorDiagnostic: React.FC = () => {
     setInputMode('text');
     setImageFile(null);
     setImagePreview(null);
+    setExplanationImageFile(null);
+    setExplanationImagePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+    if (explanationFileInputRef.current) {
+      explanationFileInputRef.current.value = '';
     }
   };
 
@@ -653,6 +713,8 @@ const MathTutorDiagnostic: React.FC = () => {
       systemPrompt: SYSTEM_PROMPT_JSON,
       problem: currentProblem.content || '이미지 문제',
       problemImage: currentProblem.imageUrl,
+      explanationImage: currentProblem.explanationImageUrl,
+      explanationText: currentProblem.explanationText,
       userMessage,
       context: contextText,
       signal: abortRef.current?.signal,
@@ -792,22 +854,60 @@ const MathTutorDiagnostic: React.FC = () => {
                     {currentProblem.category}
                   </span>
                 )}
-              </div>
-            </div>
-            {currentProblem.imageUrl ? (
-              <div>
-                <img 
-                  src={currentProblem.imageUrl} 
-                  alt="문제 이미지" 
-                  className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
-                />
-                {currentProblem.content && (
-                  <p className="text-gray-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
+                {currentProblem.explanationImageUrl && (
+                  <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                    해설 이미지
+                  </span>
+                )}
+                {currentProblem.explanationText && (
+                  <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                    해설 텍스트
+                  </span>
                 )}
               </div>
-            ) : (
-              <p className="text-gray-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
-            )}
+            </div>
+            <div className="space-y-3">
+              {currentProblem.imageUrl && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">문제</h4>
+                  <img
+                    src={currentProblem.imageUrl}
+                    alt="문제 이미지"
+                    className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
+                  />
+                  {currentProblem.content && (
+                    <p className="text-gray-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
+                  )}
+                </div>
+              )}
+
+              {!currentProblem.imageUrl && currentProblem.content && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">문제</h4>
+                  <p className="text-gray-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
+                </div>
+              )}
+
+              {(currentProblem.explanationImageUrl || currentProblem.explanationText) && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">해설</h4>
+                  {currentProblem.explanationImageUrl && (
+                    <img
+                      src={currentProblem.explanationImageUrl}
+                      alt="해설 이미지"
+                      className="w-full max-h-64 object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
+                    />
+                  )}
+                  {currentProblem.explanationText && (
+                    <div className="bg-orange-50 border border-orange-200 rounded p-3">
+                      <p className="text-gray-800 text-xs sm:text-sm whitespace-pre-wrap">
+                        {currentProblem.explanationText}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -927,6 +1027,68 @@ const MathTutorDiagnostic: React.FC = () => {
                         )}
                       </div>
                     )}
+
+                    {/* 해설 이미지 업로드 섹션 */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-700">해설 이미지 (선택사항)</label>
+                      <input
+                        ref={explanationFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setExplanationImageFile(file);
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                              setExplanationImagePreview(reader.result as string);
+                              setNewProblem(prev => ({
+                                ...prev,
+                                explanationImageUrl: reader.result as string
+                              }));
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+
+                      {!explanationImagePreview ? (
+                        <button
+                          onClick={() => explanationFileInputRef.current?.click()}
+                          className="w-full h-16 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-1 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
+                        >
+                          <Upload size={16} className="text-gray-400" />
+                          <span className="text-xs text-gray-600">해설 이미지 선택</span>
+                        </button>
+                      ) : (
+                        <div className="relative">
+                          <img
+                            src={explanationImagePreview}
+                            alt="해설 이미지"
+                            className="w-full max-h-24 object-contain border border-gray-300 rounded p-1"
+                          />
+                          <button
+                            onClick={() => {
+                              setExplanationImageFile(null);
+                              setExplanationImagePreview(null);
+                              setNewProblem(prev => ({
+                                ...prev,
+                                explanationImageUrl: undefined
+                              }));
+                              if (explanationFileInputRef.current) {
+                                explanationFileInputRef.current.value = '';
+                              }
+                            }}
+                            className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600"
+                            title="해설 이미지 제거"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex gap-2">
                       <input
                         type="text"
@@ -961,6 +1123,19 @@ const MathTutorDiagnostic: React.FC = () => {
                         <option value="hard">어려움</option>
                       </select>
                     </div>
+
+                    {/* 해설 텍스트 입력 섹션 */}
+                    <div className="space-y-2">
+                      <label className="block text-xs font-medium text-gray-700">해설 텍스트 (선택사항)</label>
+                      <textarea
+                        value={newProblem.explanationText || ''}
+                        onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
+                        placeholder="해설을 텍스트로 입력하세요..."
+                        className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
+                        rows={2}
+                      />
+                    </div>
+
                     <div className="flex gap-2">
                       <button
                         onClick={() => updateProblem(problem.id)}
@@ -1021,6 +1196,16 @@ const MathTutorDiagnostic: React.FC = () => {
                           {problem.category && (
                             <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs font-medium">
                               {problem.category}
+                            </span>
+                          )}
+                          {problem.explanationImageUrl && (
+                            <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                              해설 이미지
+                            </span>
+                          )}
+                          {problem.explanationText && (
+                            <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                              해설 텍스트
                             </span>
                           )}
                         </div>
@@ -1178,6 +1363,86 @@ const MathTutorDiagnostic: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {/* 해설 이미지 업로드 섹션 */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">해설 이미지 (선택사항)</label>
+                <input
+                  ref={explanationFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setExplanationImageFile(file);
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        setExplanationImagePreview(reader.result as string);
+                        setNewProblem(prev => ({
+                          ...prev,
+                          explanationImageUrl: reader.result as string
+                        }));
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="hidden"
+                />
+
+                {!explanationImagePreview ? (
+                  <button
+                    onClick={() => explanationFileInputRef.current?.click()}
+                    className="w-full h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-1 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
+                    <Upload size={20} className="text-gray-400" />
+                    <span className="text-xs text-gray-600">해설 이미지 선택</span>
+                  </button>
+                ) : (
+                  <div className="relative">
+                    <img
+                      src={explanationImagePreview}
+                      alt="해설 이미지 미리보기"
+                      className="w-full max-h-32 object-contain border border-gray-300 rounded"
+                    />
+                    <button
+                      onClick={() => {
+                        setExplanationImageFile(null);
+                        setExplanationImagePreview(null);
+                        setNewProblem(prev => ({
+                          ...prev,
+                          explanationImageUrl: undefined
+                        }));
+                        if (explanationFileInputRef.current) {
+                          explanationFileInputRef.current.value = '';
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                      title="해설 이미지 제거"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {explanationImageFile && (
+                  <div className="text-xs text-gray-600">
+                    파일명: {explanationImageFile.name} ({(explanationImageFile.size / 1024).toFixed(2)} KB)
+                  </div>
+                )}
+              </div>
+
+              {/* 해설 텍스트 입력 섹션 */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">해설 텍스트 (선택사항)</label>
+                <textarea
+                  value={newProblem.explanationText || ''}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
+                  placeholder="해설을 텍스트로 입력하세요..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
+                  rows={3}
+                />
+              </div>
+
               <div className="flex gap-2">
                 <input
                   type="text"
