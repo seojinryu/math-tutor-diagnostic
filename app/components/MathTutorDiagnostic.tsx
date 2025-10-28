@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, Settings, BookOpen, Key, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
+import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
 
 /**********************
  * Types
@@ -36,7 +36,7 @@ export interface DiagnosticData {
 
 export interface Message {
   id: string;
-  type: 'student' | 'llm';
+  type: 'student' | 'ai';
   content: string;
   timestamp: string;
   diagnostic?: DiagnosticData | null;
@@ -186,9 +186,9 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
 }
 
 /**********************
- * Providers (Gemini only)
+ * Gemini AI Integration
  **********************/
-interface ProviderArgs {
+interface GeminiArgs {
   apiKey: string;
   systemPrompt: string;
   problem: string;
@@ -200,7 +200,7 @@ interface ProviderArgs {
   signal?: AbortSignal;
 }
 
-const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 LLM입니다. 
+const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 AI입니다. 
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
 ### **입력 데이터**
@@ -222,7 +222,7 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
 
 3. **다음 질문 제안**:
    - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?") 
-   - 4단계(되돌아보기)는 LLM이 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
+   - 4단계(되돌아보기)는 AI가 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
 
 4. **피드백 완료 여부 판단**:
    - 학생이 충분한 피드백을 받았는지 여부 판단 (예: "더 이상 질문이 없고, 학생이 문제를 이해한 것으로 보임")
@@ -254,7 +254,7 @@ const buildContext = (msgs: Message[]) =>
     .slice(-10)  // 최근 10개 메시지
     .map((m) => {
       if (m.type === 'student') return `학생: ${m.content}`;
-      if (m.type === 'llm' && !m.isError) return `선생님: ${m.content}`;
+      if (m.type === 'ai' && !m.isError) return `선생님: ${m.content}`;
       return '';
     })
     .filter(Boolean)
@@ -270,9 +270,9 @@ interface GeminiCandidate { content?: { parts?: GeminiPart[] }; finishReason?: s
 interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates?: GeminiCandidate[] }
 
 /**********************
- * Provider Call (Gemini)
+ * Gemini API Call
  **********************/
-async function callGemini({ apiKey, systemPrompt, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: ProviderArgs): Promise<DiagnosticData> {
+async function callGemini({ apiKey, systemPrompt, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: GeminiArgs): Promise<DiagnosticData> {
   const responseSchema = {
     type: "OBJECT",
     properties: {
@@ -707,7 +707,7 @@ const MathTutorDiagnostic: React.FC = () => {
     if (!currentProblem) {
       throw new Error('문제가 선택되지 않았습니다.');
     }
-    const args: ProviderArgs = {
+    const args: GeminiArgs = {
       apiKey,
       systemPrompt: SYSTEM_PROMPT_JSON,
       problem: currentProblem.content || '이미지 문제',
@@ -743,26 +743,26 @@ const MathTutorDiagnostic: React.FC = () => {
     try {
       const diagnostic = await sendToGemini(currentInput);
       setCurrentDiagnostic(diagnostic);
-      const llmMessage: Message = {
+      const aiMessage: Message = {
         id: uid(),
-        type: 'llm',
+        type: 'ai',
         content: diagnostic.next_question, // 권장 다음 질문을 응답으로 표시
         diagnostic,
         timestamp: nowTime(),
       };
-      setMessages((prev) => [...prev, llmMessage]);
+      setMessages((prev) => [...prev, aiMessage]);
       setCurrentInput('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '알 수 없는 오류';
-      const llmMessage: Message = {
+      const aiMessage: Message = {
         id: uid(),
-        type: 'llm',
+        type: 'ai',
         content: `오류가 발생했습니다: ${msg}`,
         timestamp: nowTime(),
         isError: true,
         debug: err instanceof Error ? String(err.stack ?? '') : undefined,
       };
-      setMessages((prev) => [...prev, llmMessage]);
+      setMessages((prev) => [...prev, aiMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -791,9 +791,9 @@ const MathTutorDiagnostic: React.FC = () => {
         <div className="mb-4 sm:mb-6">
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-1 sm:gap-2">
             <Brain className="text-blue-600" />
-            수학 교육용 LLM 진단 시스템 (Gemini 전용)
+            수학 교육용 AI 진단 시스템 (Gemini)
           </h1>
-          <p className="text-gray-600 text-xs sm:text-sm">학생-LLM 대화형 진단 시스템</p>
+          <p className="text-gray-600 text-xs sm:text-sm">학생-AI 대화형 진단 시스템</p>
         </div>
 
       {/* API 키가 환경변수로 설정되어 있으므로 UI에서 제거 */}
@@ -1504,7 +1504,7 @@ const MathTutorDiagnostic: React.FC = () => {
             <div className="flex justify-between items-center">
               <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
                 <MessageCircle className="text-blue-600" size={20} />
-                학생-LLM 대화
+                학생-AI 대화
               </h2>
               <button onClick={clearChat} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1 rounded hover:bg-gray-100">
                 대화 초기화
@@ -1529,7 +1529,7 @@ const MathTutorDiagnostic: React.FC = () => {
                 >
                   <div className="text-sm font-medium mb-1 flex items-center gap-1">
                     {message.type === 'student' && <User className="w-4 h-4" />}
-                    {message.type === 'student' ? '학생' : 'LLM 권장 질문'}
+                    {message.type === 'student' ? '학생' : 'AI 권장 질문'}
                   </div>
                   <div className="text-sm whitespace-pre-wrap">{message.content}</div>
                   {message.isError && (
@@ -1636,7 +1636,7 @@ const MathTutorDiagnostic: React.FC = () => {
               <div className="space-y-4">
                 <h3 className="font-medium text-black border-b pb-2">진단 히스토리</h3>
                 {messages
-                  .filter((m) => m.type === 'llm' && m.diagnostic)
+                  .filter((m) => m.type === 'ai' && m.diagnostic)
                   .map((m) => (
                     <div key={m.id} className="border rounded-lg p-4 sm:p-5 bg-gray-50">
                       <div className="mb-3">
