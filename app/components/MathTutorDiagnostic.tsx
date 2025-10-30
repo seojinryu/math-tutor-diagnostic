@@ -663,10 +663,9 @@ const MathTutorDiagnostic: React.FC = () => {
     <div
       className="w-full bg-gradient-to-b from-sky-50 via-teal-50 to-emerald-50 overflow-hidden"
       style={{
-        height: '100dvh',
-        fallbacks: { height: '100vh' },
+        height: '100vh',
         WebkitOverflowScrolling: 'touch'
-      }}
+      } as React.CSSProperties}
     >
       <div
         className="w-full h-full overflow-hidden flex flex-col"
