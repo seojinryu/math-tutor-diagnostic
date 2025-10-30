@@ -14,6 +14,14 @@ import {
   Settings
 } from 'lucide-react';
 
+interface Activity {
+  id: number;
+  type: string;
+  message: string;
+  time: string;
+  status: string;
+}
+
 const AdminDashboard = () => {
   const [stats, setStats] = useState({
     totalProblems: 0,
@@ -22,7 +30,7 @@ const AdminDashboard = () => {
     successRate: 0
   });
 
-  const [recentActivity, setRecentActivity] = useState([]);
+  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
 
   useEffect(() => {
     // 로컬스토리지에서 통계 데이터 로드
