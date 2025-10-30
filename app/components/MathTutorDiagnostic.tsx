@@ -240,10 +240,6 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
   "feedback_completed": "true/false"
 }`;
 
-const SYSTEM_PROMPT_JSON_ONLY = `${SYSTEM_PROMPT_BASE}
-
----
-반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(\`\`\`), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.`;
 
 const buildContext = (msgs: Message[]) =>
   msgs
@@ -422,15 +418,9 @@ const MathTutorDiagnostic: React.FC = () => {
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [showProblemManager, setShowProblemManager] = useState(false);
-  const [isAddingProblem, setIsAddingProblem] = useState(false);
-  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
-  const [inputMode, setInputMode] = useState<'text' | 'image'>('text');
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [explanationImageFile, setExplanationImageFile] = useState<File | null>(null);
-  const [explanationImagePreview, setExplanationImagePreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const explanationFileInputRef = useRef<HTMLInputElement>(null);
+  const [showDiagnosticDetail, setShowDiagnosticDetail] = useState<Record<string, boolean>>({});
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [isDesktop, setIsDesktop] = useState(true);
   
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
@@ -442,11 +432,42 @@ const MathTutorDiagnostic: React.FC = () => {
   });
 
   const abortRef = useRef<AbortController | null>(null);
-  const SYSTEM_PROMPT_JSON = useMemo(() => SYSTEM_PROMPT_JSON_ONLY, []);
+  const SYSTEM_PROMPT_JSON = useMemo(() => {
+    const basePrompt = customPrompt || SYSTEM_PROMPT_BASE;
+    return `${basePrompt}
+
+---
+반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(\`\`\`), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.`;
+  }, [customPrompt]);
 
   const currentProblem = useMemo(() => {
     return problems.find(p => p.id === selectedProblemId);
   }, [problems, selectedProblemId]);
+
+  // Handle responsive layout
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 768); // 태블릿부터 데스크톱으로 간주
+    };
+
+    checkDesktop();
+    window.addEventListener('resize', checkDesktop);
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
+
+  // Load custom prompt from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedPrompt = localStorage.getItem('math_tutor_custom_prompt');
+    if (storedPrompt) {
+      setCustomPrompt(storedPrompt);
+    } else {
+      setCustomPrompt(SYSTEM_PROMPT_BASE);
+    }
+  }, []);
+
 
   // Load problems from localStorage
   useEffect(() => {
@@ -521,180 +542,12 @@ const MathTutorDiagnostic: React.FC = () => {
     setCurrentDiagnostic(null);
   };
 
-  const addProblem = () => {
-    if (!newProblem.title?.trim()) {
-      alert('문제 제목을 입력해주세요.');
-      return;
-    }
-    
-    if (!newProblem.content?.trim() && !newProblem.imageUrl) {
-      alert('문제 내용이나 이미지를 입력해주세요.');
-      return;
-    }
 
-    const problem: Problem = {
-      id: uid(),
-      title: newProblem.title.trim(),
-      content: newProblem.content?.trim() || '',
-      imageUrl: newProblem.imageUrl,
-      explanationImageUrl: newProblem.explanationImageUrl,
-      explanationText: newProblem.explanationText?.trim() || undefined,
-      category: newProblem.category?.trim() || '',
-      grade: newProblem.grade?.trim() || '',
-      unit: newProblem.unit?.trim() || '',
-      difficulty: newProblem.difficulty || 'medium',
-      createdAt: nowTime(),
-      updatedAt: nowTime()
-    };
-
-    setProblems(prev => [...prev, problem]);
-    setSelectedProblemId(problem.id);
-    setNewProblem({
-      title: '',
-      content: '',
-      imageUrl: undefined,
-      explanationImageUrl: undefined,
-      explanationText: undefined,
-      category: '',
-      grade: '',
-      unit: '',
-      difficulty: 'medium'
-    });
-    setIsAddingProblem(false);
-    setInputMode('text');
-    setImageFile(null);
-    setImagePreview(null);
-    setExplanationImageFile(null);
-    setExplanationImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    if (explanationFileInputRef.current) {
-      explanationFileInputRef.current.value = '';
-    }
+  const selectProblem = (problemId: string) => {
+    setSelectedProblemId(problemId);
+    setShowProblemManager(false);
   };
 
-  const updateProblem = (problemId: string) => {
-    if (!newProblem.title?.trim()) {
-      alert('문제 제목을 입력해주세요.');
-      return;
-    }
-    
-    if (!newProblem.content?.trim() && !newProblem.imageUrl) {
-      alert('문제 내용이나 이미지를 입력해주세요.');
-      return;
-    }
-
-    setProblems(prev => prev.map(p =>
-      p.id === problemId
-        ? {
-            ...p,
-            title: newProblem.title!.trim(),
-            content: newProblem.content?.trim() || '',
-            imageUrl: newProblem.imageUrl,
-            explanationImageUrl: newProblem.explanationImageUrl,
-            explanationText: newProblem.explanationText?.trim() || undefined,
-            category: newProblem.category?.trim() || '',
-            grade: newProblem.grade?.trim() || '',
-            unit: newProblem.unit?.trim() || '',
-            difficulty: newProblem.difficulty || 'medium',
-            updatedAt: nowTime()
-          }
-        : p
-    ));
-    
-    setEditingProblemId(null);
-    setNewProblem({
-      title: '',
-      content: '',
-      imageUrl: undefined,
-      explanationImageUrl: undefined,
-      explanationText: undefined,
-      category: '',
-      grade: '',
-      unit: '',
-      difficulty: 'medium'
-    });
-    setInputMode('text');
-    setImageFile(null);
-    setImagePreview(null);
-    setExplanationImageFile(null);
-    setExplanationImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    if (explanationFileInputRef.current) {
-      explanationFileInputRef.current.value = '';
-    }
-  };
-
-  const deleteProblem = (problemId: string) => {
-    if (problems.length <= 1) {
-      alert('최소 1개의 문제는 있어야 합니다.');
-      return;
-    }
-
-    if (confirm('이 문제를 삭제하시겠습니까?')) {
-      setProblems(prev => prev.filter(p => p.id !== problemId));
-      if (selectedProblemId === problemId) {
-        const remainingProblems = problems.filter(p => p.id !== problemId);
-        if (remainingProblems.length > 0) {
-          setSelectedProblemId(remainingProblems[0].id);
-        }
-      }
-    }
-  };
-
-  const startEditProblem = (problem: Problem) => {
-    setEditingProblemId(problem.id);
-    setNewProblem({
-      title: problem.title,
-      content: problem.content,
-      imageUrl: problem.imageUrl,
-      explanationImageUrl: problem.explanationImageUrl,
-      explanationText: problem.explanationText,
-      category: problem.category,
-      grade: problem.grade,
-      unit: problem.unit,
-      difficulty: problem.difficulty
-    });
-    if (problem.imageUrl) {
-      setInputMode('image');
-      setImagePreview(problem.imageUrl);
-    } else {
-      setInputMode('text');
-    }
-    if (problem.explanationImageUrl) {
-      setExplanationImagePreview(problem.explanationImageUrl);
-    }
-  };
-
-  const cancelEdit = () => {
-    setEditingProblemId(null);
-    setIsAddingProblem(false);
-    setNewProblem({
-      title: '',
-      content: '',
-      imageUrl: undefined,
-      explanationImageUrl: undefined,
-      explanationText: undefined,
-      category: '',
-      grade: '',
-      unit: '',
-      difficulty: 'medium'
-    });
-    setInputMode('text');
-    setImageFile(null);
-    setImagePreview(null);
-    setExplanationImageFile(null);
-    setExplanationImagePreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    if (explanationFileInputRef.current) {
-      explanationFileInputRef.current.value = '';
-    }
-  };
 
   const contextText = useMemo(() => buildContext(messages), [messages]);
 
@@ -772,7 +625,7 @@ const MathTutorDiagnostic: React.FC = () => {
 
   const stagePill = (stage?: string) => {
     if (!stage) return null;
-    const meta = STAGES[stage] || { color: 'bg-gray-100 text-gray-800', label: '단계 미정' };
+    const meta = STAGES[stage] || { color: 'bg-slate-100/80 text-slate-800', label: '단계 미정' };
     return (
       <span className={`px-3 py-1 rounded-full text-sm font-medium ${meta.color}`}>
         단계 {stage}: {meta.label}
@@ -780,745 +633,365 @@ const MathTutorDiagnostic: React.FC = () => {
     );
   };
 
+  const toggleDiagnosticDetail = (messageId: string) => {
+    setShowDiagnosticDetail(prev => ({
+      ...prev,
+      [messageId]: !prev[messageId]
+    }));
+  };
+
+  // 컴포넌트 마운트 시 body 스크롤 방지
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    // body 스크롤 방지
+    document.body.style.overflow = 'hidden';
+    document.body.style.height = '100vh';
+    document.documentElement.style.overflow = 'hidden';
+    document.documentElement.style.height = '100vh';
+
+    return () => {
+      // 컴포넌트 언마운트 시 복원
+      document.body.style.overflow = '';
+      document.body.style.height = '';
+      document.documentElement.style.overflow = '';
+      document.documentElement.style.height = '';
+    };
+  }, []);
+
   return (
-    <div className="w-full min-h-screen bg-gray-50 py-4 sm:py-6 lg:py-8">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-4 sm:mb-6">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900 mb-2 flex items-center gap-1 sm:gap-2">
-            <Brain className="text-blue-600" />
-            수학 교육용 AI 진단 시스템 (Gemini)
-          </h1>
-          <p className="text-gray-600 text-xs sm:text-sm">학생-AI 대화형 진단 시스템</p>
+    <div
+      className="w-full bg-gradient-to-b from-sky-50 via-teal-50 to-emerald-50 overflow-hidden"
+      style={{
+        height: '100dvh',
+        fallbacks: { height: '100vh' },
+        WebkitOverflowScrolling: 'touch'
+      }}
+    >
+      <div
+        className="w-full h-full overflow-hidden flex flex-col"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {/* Header - Fixed */}
+        <div className="flex-none px-4 py-3 border-b border-slate-200/60 bg-white/80 backdrop-blur-sm">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-lg sm:text-xl lg:text-2xl font-semibold text-slate-900 flex items-center gap-2">
+                <div className="p-2 bg-gradient-to-br from-blue-200 to-cyan-300 rounded-lg shadow-sm">
+                  <Brain className="w-5 h-5 text-blue-700" />
+                </div>
+                <span className="bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+                  AI 수학 튜터
+                </span>
+              </h1>
+            </div>
+            <a
+              href="/admin"
+              className="px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-slate-100 text-slate-700 hover:bg-slate-200 hover:scale-105 border border-slate-200 "
+            >
+              <FileText className="w-4 h-4 inline mr-2" />
+              관리자
+            </a>
+          </div>
         </div>
 
       {/* API 키가 환경변수로 설정되어 있으므로 UI에서 제거 */}
 
-      <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-5 mb-4 sm:mb-6">
-        <div className="flex justify-between items-start mb-3">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
-            <BookOpen className="text-green-600" size={20} />
-            문제 관리
-          </h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowProblemManager(!showProblemManager)}
-              className="px-2 sm:px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1 text-xs sm:text-sm"
+
+        {/* App Wrapper with responsive grid */}
+        <div
+          className="grid gap-6 p-6"
+          style={{
+            gridTemplateColumns: isDesktop ? '1fr 1fr' : '1fr',
+            gridTemplateRows: isDesktop ? '1fr' : '35vh 30vh 35vh',
+            flex: 1,
+            minHeight: 0,
+            WebkitOverflowScrolling: 'touch'
+          }}
+        >
+          {/* Problem + Diagnostic Cards Container (Left Column on desktop, stacked on mobile) */}
+          <div
+            className="grid gap-6"
+            style={{
+              gridTemplateRows: isDesktop ? '2fr 1fr' : '1.4fr 1fr',
+              height: '100%',
+              minHeight: 0,
+              overflow: 'hidden',
+              WebkitOverflowScrolling: 'touch'
+            }}
+          >
+            {/* Problem Card - Top Left */}
+            <div
+              className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-300/80"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                minHeight: 0,
+                WebkitOverflowScrolling: 'touch'
+              }}
             >
-              <List size={16} />
-              {showProblemManager ? '닫기' : '문제 목록'} ({problems.length})
-            </button>
-            <button
-              onClick={() => setIsAddingProblem(true)}
-              className="px-2 sm:px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-xs sm:text-sm"
-            >
-              <Plus size={16} />
-              새 문제
-            </button>
-          </div>
-        </div>
-
-        {/* Current Problem Display */}
-        {currentProblem && !showProblemManager && (
-          <div className="bg-blue-50 p-4 sm:p-5 rounded-lg">
-            <div className="flex justify-between items-start mb-2">
-              <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{currentProblem.title}</h3>
-              <div className="flex gap-2 flex-wrap">
-                {currentProblem.grade && (
-                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                    {currentProblem.grade}
-                  </span>
-                )}
-                {currentProblem.unit && (
-                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
-                    {currentProblem.unit}
-                  </span>
-                )}
-                {currentProblem.difficulty && (
-                  <span className={`px-2 py-1 rounded text-xs font-medium ${
-                    currentProblem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
-                    currentProblem.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {currentProblem.difficulty === 'easy' ? '쉬움' :
-                     currentProblem.difficulty === 'medium' ? '보통' : '어려움'}
-                  </span>
-                )}
-                {currentProblem.category && (
-                  <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">
-                    {currentProblem.category}
-                  </span>
-                )}
-                {currentProblem.explanationImageUrl && (
-                  <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                    해설 이미지
-                  </span>
-                )}
-                {currentProblem.explanationText && (
-                  <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                    해설 텍스트
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="space-y-3">
-              {currentProblem.imageUrl && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">문제</h4>
-                  <img
-                    src={currentProblem.imageUrl}
-                    alt="문제 이미지"
-                    className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
-                  />
-                  {currentProblem.content && (
-                    <p className="text-gray-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
-                  )}
-                </div>
-              )}
-
-              {!currentProblem.imageUrl && currentProblem.content && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">문제</h4>
-                  <p className="text-gray-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
-                </div>
-              )}
-
-              {(currentProblem.explanationImageUrl || currentProblem.explanationText) && (
-                <div>
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">해설</h4>
-                  {currentProblem.explanationImageUrl && (
-                    <img
-                      src={currentProblem.explanationImageUrl}
-                      alt="해설 이미지"
-                      className="w-full max-h-64 object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
-                    />
-                  )}
-                  {currentProblem.explanationText && (
-                    <div className="bg-orange-50 border border-orange-200 rounded p-3">
-                      <p className="text-gray-800 text-xs sm:text-sm whitespace-pre-wrap">
-                        {currentProblem.explanationText}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Problem List */}
-        {showProblemManager && (
-          <div className="space-y-2 mt-3 sm:mt-4">
-            {problems.map((problem) => (
               <div
-                key={problem.id}
-                className={`border rounded-lg p-2 sm:p-3 ${
-                  selectedProblemId === problem.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                } ${editingProblemId === problem.id ? 'bg-yellow-50' : ''}`}
+                className="px-4 py-3 border-b border-slate-200/50"
+                style={{ flex: 'none' }}
               >
-                {editingProblemId === problem.id ? (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      value={newProblem.title}
-                      onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
-                      placeholder="문제 제목"
-                      className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                    />
-                    
-                    {/* 입력 방식 선택 탭 */}
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setInputMode('text')}
-                        className={`flex-1 px-2 py-1 rounded flex items-center justify-center gap-1 text-xs transition-colors ${
-                          inputMode === 'text' 
-                            ? 'bg-blue-500 text-white' 
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                      >
-                        <FileText size={14} />
-                        텍스트
-                      </button>
-                      <button
-                        onClick={() => setInputMode('image')}
-                        className={`flex-1 px-2 py-1 rounded flex items-center justify-center gap-1 text-xs transition-colors ${
-                          inputMode === 'image' 
-                            ? 'bg-blue-500 text-white' 
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                        }`}
-                      >
-                        <Image size={14} />
-                        이미지
-                      </button>
+              <div className="flex justify-between items-center">
+                <h2 className="text-base font-semibold text-slate-800">
+                  문제/해설
+                </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowProblemManager(!showProblemManager)}
+                    className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200"
+                  >
+                    {showProblemManager ? '닫기' : '문제 선택'}
+                  </button>
+                </div>
+              </div>
+              </div>
+
+              <div
+                className="p-6"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'auto',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+              >
+              {/* Current Problem Display */}
+              {currentProblem && !showProblemManager && (
+                <div className="bg-gradient-to-br from-slate-50 to-blue-50/50 p-6 rounded-lg border border-slate-200/50">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-semibold text-slate-800 text-base">{currentProblem.title}</h3>
+                    <div className="flex gap-2 flex-wrap">
+                      {currentProblem.grade && (
+                        <span className="px-3 py-1.5 bg-blue-100/80 text-blue-700 rounded-lg text-xs font-medium border border-blue-200/50">
+                          {currentProblem.grade}
+                        </span>
+                      )}
+                      {currentProblem.unit && (
+                        <span className="px-3 py-1.5 bg-indigo-100/80 text-indigo-700 rounded-lg text-xs font-medium border border-indigo-200/50">
+                          {currentProblem.unit}
+                        </span>
+                      )}
+                      {currentProblem.difficulty && (
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                          currentProblem.difficulty === 'easy' ? 'bg-emerald-100/80 text-emerald-700 border-emerald-200/50' :
+                          currentProblem.difficulty === 'medium' ? 'bg-amber-100/80 text-amber-700 border-amber-200/50' :
+                          'bg-rose-100/80 text-rose-700 border-rose-200/50'
+                        }`}>
+                          {currentProblem.difficulty === 'easy' ? '쉬움' :
+                           currentProblem.difficulty === 'medium' ? '보통' : '어려움'}
+                        </span>
+                      )}
+                      {currentProblem.category && (
+                        <span className="px-3 py-1.5 bg-purple-100/80 text-purple-700 rounded-lg text-xs font-medium border border-purple-200/50">
+                          {currentProblem.category}
+                        </span>
+                      )}
+                      {currentProblem.explanationImageUrl && (
+                        <span className="px-3 py-1.5 bg-orange-100/80 text-orange-700 rounded-lg text-xs font-medium border border-orange-200/50">
+                          해설 이미지
+                        </span>
+                      )}
+                      {currentProblem.explanationText && (
+                        <span className="px-3 py-1.5 bg-teal-100/80 text-teal-700 rounded-lg text-xs font-medium border border-teal-200/50">
+                          해설 텍스트
+                        </span>
+                      )}
                     </div>
-                    
-                    {inputMode === 'text' ? (
-                      <textarea
-                        value={newProblem.content}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
-                        placeholder="문제 내용"
-                        className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
-                        rows={3}
-                      />
-                    ) : (
-                      <div className="space-y-2">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setImageFile(file);
-                              const reader = new FileReader();
-                              reader.onloadend = () => {
-                                setImagePreview(reader.result as string);
-                                setNewProblem(prev => ({ 
-                                  ...prev, 
-                                  imageUrl: reader.result as string,
-                                  content: `[이미지 문제: ${file.name}]`
-                                }));
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                          className="hidden"
+                  </div>
+                  <div className="space-y-3">
+                    {currentProblem.imageUrl && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-700 mb-2">문제</h4>
+                        <img
+                          src={currentProblem.imageUrl}
+                          alt="문제 이미지"
+                          className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
                         />
-                        
-                        {!imagePreview ? (
-                          <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="w-full h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-1 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
-                          >
-                            <Upload size={20} className="text-gray-400" />
-                            <span className="text-xs text-gray-600">이미지 선택</span>
-                          </button>
-                        ) : (
-                          <div className="relative">
-                            <img 
-                              src={imagePreview} 
-                              alt="문제 이미지" 
-                              className="w-full max-h-32 object-contain border border-gray-300 rounded"
-                            />
-                            <button
-                              onClick={() => {
-                                setImageFile(null);
-                                setImagePreview(null);
-                                setNewProblem(prev => ({ 
-                                  ...prev, 
-                                  imageUrl: undefined,
-                                  content: ''
-                                }));
-                                if (fileInputRef.current) {
-                                  fileInputRef.current.value = '';
-                                }
-                              }}
-                              className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600"
-                              title="이미지 제거"
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
+                        {currentProblem.content && (
+                          <p className="text-slate-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
                         )}
                       </div>
                     )}
 
-                    {/* 해설 이미지 업로드 섹션 */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-medium text-gray-700">해설 이미지 (선택사항)</label>
-                      <input
-                        ref={explanationFileInputRef}
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            setExplanationImageFile(file);
-                            const reader = new FileReader();
-                            reader.onloadend = () => {
-                              setExplanationImagePreview(reader.result as string);
-                              setNewProblem(prev => ({
-                                ...prev,
-                                explanationImageUrl: reader.result as string
-                              }));
-                            };
-                            reader.readAsDataURL(file);
-                          }
-                        }}
-                        className="hidden"
-                      />
+                    {!currentProblem.imageUrl && currentProblem.content && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-700 mb-2">문제</h4>
+                        <p className="text-slate-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
+                      </div>
+                    )}
 
-                      {!explanationImagePreview ? (
-                        <button
-                          onClick={() => explanationFileInputRef.current?.click()}
-                          className="w-full h-16 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-1 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
-                        >
-                          <Upload size={16} className="text-gray-400" />
-                          <span className="text-xs text-gray-600">해설 이미지 선택</span>
-                        </button>
-                      ) : (
-                        <div className="relative">
+                    {(currentProblem.explanationImageUrl || currentProblem.explanationText) && (
+                      <div>
+                        <h4 className="text-sm font-medium text-slate-700 mb-2">해설</h4>
+                        {currentProblem.explanationImageUrl && (
                           <img
-                            src={explanationImagePreview}
+                            src={currentProblem.explanationImageUrl}
                             alt="해설 이미지"
-                            className="w-full max-h-24 object-contain border border-gray-300 rounded p-1"
+                            className="w-full max-h-64 object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
                           />
-                          <button
-                            onClick={() => {
-                              setExplanationImageFile(null);
-                              setExplanationImagePreview(null);
-                              setNewProblem(prev => ({
-                                ...prev,
-                                explanationImageUrl: undefined
-                              }));
-                              if (explanationFileInputRef.current) {
-                                explanationFileInputRef.current.value = '';
-                              }
-                            }}
-                            className="absolute top-1 right-1 p-0.5 bg-red-500 text-white rounded-full hover:bg-red-600"
-                            title="해설 이미지 제거"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newProblem.grade}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, grade: e.target.value }))}
-                        placeholder="학년 (예: 중1, 고2)"
-                        className="w-24 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                      />
-                      <input
-                        type="text"
-                        value={newProblem.unit}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, unit: e.target.value }))}
-                        placeholder="단원명"
-                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newProblem.category}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
-                        placeholder="카테고리 (선택)"
-                        className="flex-1 px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                      />
-                      <select
-                        value={newProblem.difficulty}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                        className="px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                      >
-                        <option value="easy">쉬움</option>
-                        <option value="medium">보통</option>
-                        <option value="hard">어려움</option>
-                      </select>
-                    </div>
-
-                    {/* 해설 텍스트 입력 섹션 */}
-                    <div className="space-y-2">
-                      <label className="block text-xs font-medium text-gray-700">해설 텍스트 (선택사항)</label>
-                      <textarea
-                        value={newProblem.explanationText || ''}
-                        onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
-                        placeholder="해설을 텍스트로 입력하세요..."
-                        className="w-full px-2 sm:px-3 py-1 border border-gray-300 rounded text-sm text-gray-900"
-                        rows={2}
-                      />
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => updateProblem(problem.id)}
-                        className="px-2 sm:px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
-                      >
-                        <Check size={16} />
-                        저장
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="px-2 sm:px-3 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1 text-sm"
-                      >
-                        <X size={16} />
-                        취소
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-gray-900 text-sm sm:text-base">{problem.title}</h4>
-                        {problem.imageUrl ? (
-                          <div className="mt-1">
-                            <img 
-                              src={problem.imageUrl} 
-                              alt="문제 이미지" 
-                              className="w-full max-h-24 object-contain border border-gray-200 rounded p-1"
-                            />
-                            {problem.content && (
-                              <p className="text-gray-500 text-xs mt-1">{problem.content}</p>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-xs sm:text-sm text-gray-600 mt-1 line-clamp-2">{problem.content}</p>
                         )}
-                        <div className="flex gap-2 mt-2 flex-wrap">
-                          {problem.grade && (
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                              {problem.grade}
-                            </span>
-                          )}
-                          {problem.unit && (
-                            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded text-xs font-medium">
-                              {problem.unit}
-                            </span>
-                          )}
-                          {problem.difficulty && (
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                              problem.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
-                              problem.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              {problem.difficulty === 'easy' ? '쉬움' :
-                               problem.difficulty === 'medium' ? '보통' : '어려움'}
-                            </span>
-                          )}
-                          {problem.category && (
-                            <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded text-xs font-medium">
-                              {problem.category}
-                            </span>
-                          )}
-                          {problem.explanationImageUrl && (
-                            <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                              해설 이미지
-                            </span>
-                          )}
-                          {problem.explanationText && (
-                            <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded text-xs font-medium">
-                              해설 텍스트
-                            </span>
-                          )}
-                        </div>
+                        {currentProblem.explanationText && (
+                          <p className="text-slate-800 whitespace-pre-wrap text-xs sm:text-sm bg-orange-50/80 p-3 rounded-lg">{currentProblem.explanationText}</p>
+                        )}
                       </div>
-                      <div className="flex gap-1 ml-2">
-                        <button
-                          onClick={() => setSelectedProblemId(problem.id)}
-                          className={`p-1 rounded ${
-                            selectedProblemId === problem.id 
-                              ? 'bg-blue-600 text-white' 
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                          title="선택"
-                        >
-                          <Check size={16} />
-                        </button>
-                        <button
-                          onClick={() => startEditProblem(problem)}
-                          className="p-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
-                          title="편집"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => deleteProblem(problem.id)}
-                          className="p-1 bg-gray-100 text-red-600 rounded hover:bg-red-100"
-                          title="삭제"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Add New Problem Form */}
-        {isAddingProblem && (
-          <div className="mt-4 border-2 border-green-300 rounded-lg p-4 sm:p-5 bg-green-50">
-            <h3 className="font-semibold text-gray-900 mb-2 sm:mb-3 text-sm sm:text-base">새 문제 추가</h3>
-            <div className="space-y-2">
-              <input
-                type="text"
-                value={newProblem.title}
-                onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
-                placeholder="문제 제목"
-                className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
-              />
-              
-              {/* 입력 방식 선택 탭 */}
-              <div className="flex gap-2 mb-2">
-                <button
-                  onClick={() => setInputMode('text')}
-                  className={`flex-1 px-3 py-2 rounded flex items-center justify-center gap-2 transition-colors ${
-                    inputMode === 'text' 
-                      ? 'bg-blue-500 text-white' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  <FileText size={18} />
-                  텍스트 입력
-                </button>
-                <button
-                  onClick={() => setInputMode('image')}
-                  className={`flex-1 px-3 py-2 rounded flex items-center justify-center gap-2 transition-colors ${
-                    inputMode === 'image' 
-                      ? 'bg-blue-500 text-white' 
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  <Image size={18} />
-                  이미지 업로드
-                </button>
-              </div>
-              
-              {/* 텍스트 입력 영역 */}
-              {inputMode === 'text' ? (
-                <textarea
-                  value={newProblem.content}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
-                  placeholder="문제 내용을 입력하세요"
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
-                  rows={4}
-                />
-              ) : (
-                /* 이미지 업로드 영역 */
-                <div className="space-y-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        setImageFile(file);
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setImagePreview(reader.result as string);
-                          setNewProblem(prev => ({ 
-                            ...prev, 
-                            imageUrl: reader.result as string,
-                            content: `[이미지 문제: ${file.name}]`
-                          }));
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                    className="hidden"
-                  />
-                  
-                  {!imagePreview ? (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-2 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
-                    >
-                      <Upload size={32} className="text-gray-400" />
-                      <span className="text-sm text-gray-600">클릭하여 이미지를 선택하세요</span>
-                      <span className="text-xs text-gray-500">JPG, PNG, GIF 등 지원</span>
-                    </button>
-                  ) : (
-                    <div className="relative">
-                      <img 
-                        src={imagePreview} 
-                        alt="문제 이미지 미리보기" 
-                        className="w-full max-h-64 object-contain border border-gray-300 rounded"
-                      />
-                      <button
-                        onClick={() => {
-                          setImageFile(null);
-                          setImagePreview(null);
-                          setNewProblem(prev => ({ 
-                            ...prev, 
-                            imageUrl: undefined,
-                            content: ''
-                          }));
-                          if (fileInputRef.current) {
-                            fileInputRef.current.value = '';
-                          }
-                        }}
-                        className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
-                        title="이미지 제거"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                  )}
-                  
-                  {imageFile && (
-                    <div className="text-xs text-gray-600">
-                      파일명: {imageFile.name} ({(imageFile.size / 1024).toFixed(2)} KB)
-                    </div>
-                  )}
                 </div>
               )}
 
-              {/* 해설 이미지 업로드 섹션 */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">해설 이미지 (선택사항)</label>
-                <input
-                  ref={explanationFileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setExplanationImageFile(file);
-                      const reader = new FileReader();
-                      reader.onloadend = () => {
-                        setExplanationImagePreview(reader.result as string);
-                        setNewProblem(prev => ({
-                          ...prev,
-                          explanationImageUrl: reader.result as string
-                        }));
-                      };
-                      reader.readAsDataURL(file);
-                    }
-                  }}
-                  className="hidden"
-                />
+              {!currentProblem && !showProblemManager && (
+                <div className="text-center text-slate-500 py-8">
+                  문제를 선택해주세요.
+                </div>
+              )}
 
-                {!explanationImagePreview ? (
-                  <button
-                    onClick={() => explanationFileInputRef.current?.click()}
-                    className="w-full h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center gap-1 hover:border-gray-400 hover:bg-gray-50 transition-colors cursor-pointer"
-                  >
-                    <Upload size={20} className="text-gray-400" />
-                    <span className="text-xs text-gray-600">해설 이미지 선택</span>
-                  </button>
-                ) : (
-                  <div className="relative">
-                    <img
-                      src={explanationImagePreview}
-                      alt="해설 이미지 미리보기"
-                      className="w-full max-h-32 object-contain border border-gray-300 rounded"
-                    />
-                    <button
-                      onClick={() => {
-                        setExplanationImageFile(null);
-                        setExplanationImagePreview(null);
-                        setNewProblem(prev => ({
-                          ...prev,
-                          explanationImageUrl: undefined
-                        }));
-                        if (explanationFileInputRef.current) {
-                          explanationFileInputRef.current.value = '';
-                        }
-                      }}
-                      className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
-                      title="해설 이미지 제거"
-                    >
-                      <X size={16} />
-                    </button>
+              {/* Problem List */}
+              {showProblemManager && (
+                <div className="space-y-3">
+                  {problems.map((problem) => (
+                    <div key={problem.id} className="border border-slate-200/60 rounded-lg p-4 hover:bg-slate-50/80 transition-colors duration-200">
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
+                          <h3 className="font-medium text-slate-900 text-sm">{problem.title}</h3>
+                          <p className="text-xs text-slate-600 mt-1">{problem.content ? problem.content.substring(0, 100) + '...' : '이미지 문제'}</p>
+                          <div className="flex gap-1 mt-2">
+                            {problem.grade && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{problem.grade}</span>}
+                            {problem.category && <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">{problem.category}</span>}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 ml-2">
+                          <button
+                            onClick={() => selectProblem(problem.id)}
+                            className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                          >
+                            선택
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              </div>
+            </div>
+
+            {/* Diagnostic Status Card - Bottom Left */}
+            <div
+              className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-300/80"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                minHeight: 0,
+                WebkitOverflowScrolling: 'touch'
+              }}
+            >
+              <div
+                className="px-4 py-3 border-b border-slate-200/50"
+                style={{ flex: 'none' }}
+              >
+              <div className="flex justify-between items-center">
+                <h2 className="text-base font-semibold text-slate-800">
+                  진단 상태
+                </h2>
+                <div></div>
+              </div>
+              </div>
+
+              <div
+                className="p-4 sm:p-5"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'auto',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+              >
+              {currentDiagnostic ? (
+                <div className="border-2 border-purple-200 rounded-lg p-4 sm:p-5 bg-purple-50">
+                  <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
+                  <div className="mb-3">{stagePill(currentDiagnostic.recommended_stage)}</div>
+
+                  <div className="bg-white rounded p-3 mb-3">
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div className="text-black">문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
+                      <div className="text-black">개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
+                      <div className="text-black">오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
+                      <div className="text-black">자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
+                    </div>
                   </div>
-                )}
 
-                {explanationImageFile && (
-                  <div className="text-xs text-gray-600">
-                    파일명: {explanationImageFile.name} ({(explanationImageFile.size / 1024).toFixed(2)} KB)
-                  </div>
-                )}
-              </div>
-
-              {/* 해설 텍스트 입력 섹션 */}
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">해설 텍스트 (선택사항)</label>
-                <textarea
-                  value={newProblem.explanationText || ''}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
-                  placeholder="해설을 텍스트로 입력하세요..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-gray-900"
-                  rows={3}
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newProblem.grade}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, grade: e.target.value }))}
-                  placeholder="학년 (예: 중1, 고2)"
-                  className="w-28 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
-                />
-                <input
-                  type="text"
-                  value={newProblem.unit}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, unit: e.target.value }))}
-                  placeholder="단원명"
-                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
-                />
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newProblem.category}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
-                  placeholder="카테고리 (선택)"
-                  className="flex-1 px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
-                />
-                <select
-                  value={newProblem.difficulty}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                  className="px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded text-sm text-gray-900"
-                >
-                  <option value="easy">쉬움</option>
-                  <option value="medium">보통</option>
-                  <option value="hard">어려움</option>
-                </select>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={addProblem}
-                  className="px-3 sm:px-4 py-1 sm:py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-1 text-sm"
-                >
-                  <Plus size={16} />
-                  추가
-                </button>
-                <button
-                  onClick={cancelEdit}
-                  className="px-3 sm:px-4 py-1 sm:py-2 bg-gray-500 text-white rounded hover:bg-gray-600 flex items-center gap-1 text-sm"
-                >
-                  <X size={16} />
-                  취소
-                </button>
+                </div>
+              ) : (
+                <div className="text-center text-slate-500 py-8">
+                  학생이 메시지를 보내면
+                  <br />
+                  진단 결과가 여기에 표시됩니다.
+                </div>
+              )}
               </div>
             </div>
           </div>
-        )}
-      </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
-        {/* Chat */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 sm:p-5 border-b bg-gray-50 rounded-t-lg">
+          {/* Chat Panel (Right Column on desktop, bottom on mobile) */}
+          <div
+            style={{
+              minHeight: 0,
+              overflow: 'hidden',
+              WebkitOverflowScrolling: 'touch',
+              height: '100%'
+            }}
+          >
+            {/* Chat Panel */}
+            <div
+              className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-300/80"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                minHeight: 0,
+                WebkitOverflowScrolling: 'touch'
+              }}
+            >
+              <div
+                className="px-4 py-3 border-b border-slate-200/50"
+                style={{ flex: 'none' }}
+              >
             <div className="flex justify-between items-center">
-              <h2 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-1 sm:gap-2">
-                <MessageCircle className="text-blue-600" size={20} />
-                학생-AI 대화
+              <h2 className="text-base font-semibold text-slate-800">
+                AI 대화
               </h2>
-              <button onClick={clearChat} className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1 rounded hover:bg-gray-100">
-                대화 초기화
+              <button onClick={clearChat} className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200">
+                초기화
               </button>
-            </div>
-          </div>
+              </div>
+              </div>
 
-          <div className="h-[500px] sm:h-[550px] lg:h-[600px] overflow-y-auto p-4 sm:p-5 space-y-3 sm:space-y-4">
-            {messages.length === 0 && <div className="text-center text-gray-500 py-8">학생의 첫 메시지를 기다리고 있습니다...</div>}
+              <div
+                className="p-4 sm:p-5 space-y-3 sm:space-y-4"
+                style={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflow: 'auto',
+                  WebkitOverflowScrolling: 'touch'
+                }}
+              >
+            {messages.length === 0 && <div className="text-center text-slate-500 py-8 font-medium">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.type === 'student' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[75%] sm:max-w-xs xl:max-w-md rounded-lg p-3 sm:p-4 ${
+                  className={`max-w-[85%] rounded-lg p-4  ${
                     message.isError
-                      ? 'bg-red-100 text-red-800 border border-red-200'
+                      ? 'bg-red-50/80 text-red-800 border border-red-200/60 backdrop-blur-sm'
                       : message.type === 'student'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-900'
+                      ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white '
+                      : 'bg-white/80 text-slate-900 border border-slate-200/50 backdrop-blur-sm'
                   }`}
                   aria-live={message.isError ? 'assertive' : 'polite'}
                 >
@@ -1526,7 +999,35 @@ const MathTutorDiagnostic: React.FC = () => {
                     {message.type === 'student' && <User className="w-4 h-4" />}
                     {message.type === 'student' ? '학생' : 'AI 권장 질문'}
                   </div>
+
+                  {/* AI 메시지에 단계 정보 표시 */}
+                  {message.type === 'ai' && message.diagnostic?.recommended_stage && !message.isError && (
+                    <div className="mb-2">
+                      {stagePill(message.diagnostic.recommended_stage)}
+                    </div>
+                  )}
+
                   <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+
+                  {/* AI 메시지에 진단 결과 표시 */}
+                  {message.type === 'ai' && message.diagnostic?.stage_reason && !message.isError && (
+                    <div className="mt-3">
+                      <button
+                        onClick={() => toggleDiagnosticDetail(message.id)}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 transition-colors duration-200 font-medium"
+                      >
+                        {showDiagnosticDetail[message.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        <Brain className="w-3 h-3" />
+                        진단내용 보기
+                      </button>
+                      {showDiagnosticDetail[message.id] && (
+                        <div className="mt-3 p-3 bg-blue-50/80 border border-blue-200/60 rounded-lg backdrop-blur-sm">
+                          <p className="text-xs text-blue-800 whitespace-pre-wrap font-medium leading-relaxed">{message.diagnostic.stage_reason}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {message.isError && (
                     <div className="mt-2 text-xs">
                       <button
@@ -1548,26 +1049,29 @@ const MathTutorDiagnostic: React.FC = () => {
 
             {isLoading && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 text-gray-900 rounded-lg p-3">
+                <div className="bg-white/80 text-slate-900 rounded-lg p-4 border border-slate-200/50 backdrop-blur-sm ">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    <span className="text-xs ml-2">GEMINI 응답 생성 중…</span>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                    <span className="text-xs ml-2 font-medium">GEMINI 응답 생성 중…</span>
                   </div>
                 </div>
               </div>
             )}
-          </div>
+              </div>
 
-          <div className="p-4 sm:p-5 border-t bg-gray-50">
+              <div
+                className="p-4 sm:p-5 border-t border-slate-200/60 bg-white/70 backdrop-blur-sm rounded-b-2xl"
+                style={{ flex: 'none' }}
+              >
             <div className="flex gap-3">
               <textarea
                 value={currentInput}
                 onChange={(e) => setCurrentInput(e.target.value)}
                 onKeyDown={handleKeyPress}
                 placeholder="학생 메시지를 입력하세요..."
-                className="flex-1 p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 text-black text-sm sm:text-base"
+                className="flex-1 p-4 border border-slate-300/60 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-slate-900 text-sm sm:text-base bg-white/80 backdrop-blur-sm  transition-all duration-200"
                 rows={2}
                 disabled={isLoading}
                 aria-label="학생 메시지 입력"
@@ -1575,95 +1079,18 @@ const MathTutorDiagnostic: React.FC = () => {
               <button
                 onClick={handleSendMessage}
                 disabled={!currentInput.trim() || isLoading || !apiKey}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2 text-sm sm:text-base"
+                className="px-5 py-3 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-500 disabled:cursor-not-allowed text-sm sm:text-base font-medium transition-all duration-200"
                 aria-label="메시지 전송"
               >
-                <Send size={16} />
                 전송
               </button>
+              </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Diagnostic Panel */}
-        <div className="bg-white rounded-lg shadow-sm border">
-          <div className="p-4 sm:p-5 border-b bg-gray-50 rounded-t-lg">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Brain className="text-purple-600" size={20} />
-              실시간 진단 결과
-            </h2>
-          </div>
-
-          <div className="p-4 sm:p-5 h-[500px] sm:h-[550px] lg:h-[600px] overflow-y-auto">
-            {currentDiagnostic && (
-              <div className="border-2 border-purple-200 rounded-lg p-4 sm:p-5 bg-purple-50 mb-4">
-                <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
-                <div className="mb-3">{stagePill(currentDiagnostic.recommended_stage)}</div>
-
-                <div className="bg-white rounded p-3 mb-3">
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="text-black">문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
-                    <div className="text-black">개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
-                    <div className="text-black">오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
-                    <div className="text-black">자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded p-3 mb-3">
-                  <h4 className="font-medium text-black mb-2">추천 이유</h4>
-                  <p className="text-sm text-black whitespace-pre-wrap">{currentDiagnostic.stage_reason}</p>
-                </div>
-
-                <div className="bg-white rounded p-3">
-                  <h4 className="font-medium text-black mb-2">실시간 JSON</h4>
-                  <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-hidden whitespace-pre-wrap break-words text-black">{JSON.stringify(currentDiagnostic, null, 2)}</pre>
-                </div>
-              </div>
-            )}
-
-            {messages.length === 0 ? (
-              <div className="text-center text-gray-500 py-8">
-                학생이 메시지를 보내면
-                <br />
-                진단 결과가 여기에 표시됩니다.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <h3 className="font-medium text-black border-b pb-2">진단 히스토리</h3>
-                {messages
-                  .filter((m) => m.type === 'ai' && m.diagnostic)
-                  .map((m) => (
-                    <div key={m.id} className="border rounded-lg p-4 sm:p-5 bg-gray-50">
-                      <div className="mb-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          {stagePill(m.diagnostic!.recommended_stage)}
-                          <span className="text-xs text-gray-500">{m.timestamp}</span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white rounded p-3 mb-3">
-                        <h4 className="font-medium text-black mb-2">진단 상태</h4>
-                        <div className="grid grid-cols-2 gap-2 text-sm">
-                          <div className="text-black">문제 이해도: <span className="font-medium">{m.diagnostic!.diagnosis.problem_understanding}</span></div>
-                          <div className="text-black">개념 지식: <span className="font-medium">{m.diagnostic!.diagnosis.concept_knowledge}</span></div>
-                          <div className="text-black">오류 패턴: <span className="font-medium">{m.diagnostic!.diagnosis.error_pattern}</span></div>
-                          <div className="text-black">자신감: <span className="font-medium">{m.diagnostic!.diagnosis.confidence_level}</span></div>
-                        </div>
-                      </div>
-
-                      <div className="bg-white rounded p-3">
-                        <h4 className="font-medium text-black mb-2">JSON 출력</h4>
-                        <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-hidden whitespace-pre-wrap break-words text-black">{JSON.stringify(m.diagnostic, null, 2)}</pre>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* 시스템 프롬프트 UI 섹션 제거 - 프롬프트 내용은 코드에 유지 */}
+        {/* 시스템 프롬프트 UI 섹션 제거 - 프롬프트 내용은 코드에 유지 */}
       </div>
     </div>
   );
