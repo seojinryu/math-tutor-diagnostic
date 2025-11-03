@@ -17,6 +17,7 @@ export interface Problem {
   category?: string;
   grade?: string;
   unit?: string;
+  notes?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
   updatedAt: string;
@@ -919,11 +920,6 @@ const MathTutorDiagnostic: React.FC = () => {
                           {currentProblem.unit}
                         </span>
                       )}
-                      {currentProblem.explanationImageUrl && (
-                        <span className="px-3 py-1.5 bg-orange-100/80 text-orange-700 rounded-lg text-xs font-medium border border-orange-200/50">
-                          해설 이미지
-                        </span>
-                      )}
                     </div>
                   </div>
                   <div className="space-y-3">
@@ -933,7 +929,7 @@ const MathTutorDiagnostic: React.FC = () => {
                         <img
                           src={currentProblem.imageUrl}
                           alt="문제 이미지"
-                          className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
+                          className="w-full max-h-[600px] object-contain border border-gray-200 rounded p-2"
                         />
                         {currentProblem.content && !currentProblem.content.startsWith('[이미지 문제:') && (
                           <p className="text-slate-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
@@ -955,7 +951,7 @@ const MathTutorDiagnostic: React.FC = () => {
                           <img
                             src={currentProblem.explanationImageUrl}
                             alt="해설 이미지"
-                            className="w-full max-h-64 object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
+                            className="w-full max-h-[600px] object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
                           />
                         )}
                         {currentProblem.explanationText && (

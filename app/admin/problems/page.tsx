@@ -21,6 +21,7 @@ interface Problem {
   explanationText?: string;
   grade?: string;
   unit?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -249,7 +250,8 @@ const ProblemsManagement = () => {
     content: '',
     grade: '',
     unit: '',
-    explanationText: ''
+    explanationText: '',
+    notes: ''
   });
 
   const nowTime = () =>
@@ -371,6 +373,7 @@ const ProblemsManagement = () => {
       explanationText: newProblem.explanationText?.trim() || undefined,
       grade: newProblem.grade?.trim() || '',
       unit: newProblem.unit?.trim() || '',
+      notes: newProblem.notes?.trim() || undefined,
       createdAt: nowTime(),
       updatedAt: nowTime()
     };
@@ -398,6 +401,7 @@ const ProblemsManagement = () => {
             explanationText: newProblem.explanationText?.trim() || undefined,
             grade: newProblem.grade?.trim() || '',
             unit: newProblem.unit?.trim() || '',
+            notes: newProblem.notes?.trim() || undefined,
             updatedAt: nowTime()
           }
         : p
@@ -422,7 +426,8 @@ const ProblemsManagement = () => {
       content: '',
       grade: '',
       unit: '',
-      explanationText: ''
+      explanationText: '',
+      notes: ''
     });
     setInputMode('text');
     setExplanationInputMode('text');
@@ -444,7 +449,8 @@ const ProblemsManagement = () => {
       explanationImageUrl: problem.explanationImageUrl,
       explanationText: problem.explanationText,
       grade: problem.grade,
-      unit: problem.unit
+      unit: problem.unit,
+      notes: problem.notes || ''
     });
     if (problem.imageUrl) {
       setInputMode('image');
@@ -514,15 +520,15 @@ const ProblemsManagement = () => {
               />
             </div>
 
-            {/* 단원 필터 */}
+            {/* 태그명 필터 */}
             <div className="flex-1">
               <SearchableSelect
-                placeholder="모든 단원"
+                placeholder="모든 태그명"
                 options={units}
                 value={selectedUnit}
                 onChange={setSelectedUnit}
                 onAddNew={handleAddUnit}
-                emptyText="단원 없음"
+                emptyText="태그명 없음"
               />
             </div>
           </div>
@@ -654,7 +660,7 @@ const ProblemsManagement = () => {
                   emptyText="학년 없음"
                 />
                 <SearchableSelect
-                  label="단원"
+                  label="태그명"
                   placeholder="선택하세요"
                   options={units}
                   value={newProblem.unit || ''}
@@ -662,7 +668,7 @@ const ProblemsManagement = () => {
                     setNewProblem(prev => ({ ...prev, unit: value }));
                   }}
                   onAddNew={handleAddUnit}
-                  emptyText="단원 없음"
+                  emptyText="태그명 없음"
                 />
               </div>
 
@@ -786,6 +792,18 @@ const ProblemsManagement = () => {
                   </div>
                 )}
               </div>
+
+              {/* 비고 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">비고</label>
+                <textarea
+                  value={newProblem.notes || ''}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={3}
+                  placeholder="메모나 비고사항을 입력하세요..."
+                />
+              </div>
             </div>
 
             <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
@@ -876,6 +894,16 @@ const ProblemsManagement = () => {
                       {viewingProblem.explanationText}
                     </p>
                   )}
+                </div>
+              )}
+
+              {/* 비고 */}
+              {viewingProblem.notes && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">비고</h3>
+                  <p className="text-gray-600 whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200">
+                    {viewingProblem.notes}
+                  </p>
                 </div>
               )}
 
