@@ -12,6 +12,15 @@ import {
   ChevronDown
 } from 'lucide-react';
 
+interface KnowledgeElement {
+  id: string;
+  category: 'concept' | 'principle' | 'procedure' | 'integration';
+  element: string;
+  description: string;
+  source: string;
+  cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
+}
+
 interface Problem {
   id: string;
   title: string;
@@ -22,6 +31,7 @@ interface Problem {
   grade?: string;
   unit?: string;
   notes?: string;
+  knowledgeElements?: KnowledgeElement[];
   createdAt: string;
   updatedAt: string;
 }
@@ -254,6 +264,17 @@ const ProblemsManagement = () => {
     notes: ''
   });
 
+  // 지식 요소 관리
+  const [knowledgeElements, setKnowledgeElements] = useState<KnowledgeElement[]>([]);
+  const [editingKnowledgeElement, setEditingKnowledgeElement] = useState<KnowledgeElement | null>(null);
+  const [newKnowledgeElement, setNewKnowledgeElement] = useState<Partial<KnowledgeElement>>({
+    category: 'concept',
+    element: '',
+    description: '',
+    source: '',
+    cognitiveLevel: 'remember'
+  });
+
   const nowTime = () =>
     new Intl.DateTimeFormat('ko-KR', {
       hour: '2-digit',
@@ -374,6 +395,7 @@ const ProblemsManagement = () => {
       grade: newProblem.grade?.trim() || '',
       unit: newProblem.unit?.trim() || '',
       notes: newProblem.notes?.trim() || undefined,
+      knowledgeElements: knowledgeElements.length > 0 ? knowledgeElements : undefined,
       createdAt: nowTime(),
       updatedAt: nowTime()
     };
@@ -402,6 +424,7 @@ const ProblemsManagement = () => {
             grade: newProblem.grade?.trim() || '',
             unit: newProblem.unit?.trim() || '',
             notes: newProblem.notes?.trim() || undefined,
+            knowledgeElements: knowledgeElements.length > 0 ? knowledgeElements : undefined,
             updatedAt: nowTime()
           }
         : p
@@ -429,6 +452,15 @@ const ProblemsManagement = () => {
       explanationText: '',
       notes: ''
     });
+    setKnowledgeElements([]);
+    setEditingKnowledgeElement(null);
+    setNewKnowledgeElement({
+      category: 'concept',
+      element: '',
+      description: '',
+      source: '',
+      cognitiveLevel: 'remember'
+    });
     setInputMode('text');
     setExplanationInputMode('text');
     setImageFile(null);
@@ -452,6 +484,7 @@ const ProblemsManagement = () => {
       unit: problem.unit,
       notes: problem.notes || ''
     });
+    setKnowledgeElements(problem.knowledgeElements || []);
     if (problem.imageUrl) {
       setInputMode('image');
       setImagePreview(problem.imageUrl);
@@ -464,6 +497,83 @@ const ProblemsManagement = () => {
     } else {
       setExplanationInputMode('text');
     }
+  };
+
+  // 지식 요소 추가/수정
+  const saveKnowledgeElement = () => {
+    if (!newKnowledgeElement.element?.trim() || !newKnowledgeElement.description?.trim()) {
+      alert('지식요소와 내용 설명을 입력해주세요.');
+      return;
+    }
+
+    if (editingKnowledgeElement) {
+      // 수정
+      setKnowledgeElements(knowledgeElements.map(ke =>
+        ke.id === editingKnowledgeElement.id
+          ? {
+              ...newKnowledgeElement,
+              id: editingKnowledgeElement.id,
+              element: newKnowledgeElement.element!.trim(),
+              description: newKnowledgeElement.description!.trim(),
+              source: newKnowledgeElement.source?.trim() || '',
+              category: newKnowledgeElement.category!,
+              cognitiveLevel: newKnowledgeElement.cognitiveLevel!
+            } as KnowledgeElement
+          : ke
+      ));
+      setEditingKnowledgeElement(null);
+    } else {
+      // 추가
+      const newElement: KnowledgeElement = {
+        id: uid(),
+        category: newKnowledgeElement.category!,
+        element: newKnowledgeElement.element.trim(),
+        description: newKnowledgeElement.description.trim(),
+        source: newKnowledgeElement.source?.trim() || '',
+        cognitiveLevel: newKnowledgeElement.cognitiveLevel!
+      };
+      setKnowledgeElements([...knowledgeElements, newElement]);
+    }
+
+    // 폼 초기화
+    setNewKnowledgeElement({
+      category: 'concept',
+      element: '',
+      description: '',
+      source: '',
+      cognitiveLevel: 'remember'
+    });
+  };
+
+  // 지식 요소 편집 시작
+  const startEditKnowledgeElement = (element: KnowledgeElement) => {
+    setEditingKnowledgeElement(element);
+    setNewKnowledgeElement({
+      category: element.category,
+      element: element.element,
+      description: element.description,
+      source: element.source,
+      cognitiveLevel: element.cognitiveLevel
+    });
+  };
+
+  // 지식 요소 삭제
+  const deleteKnowledgeElement = (elementId: string) => {
+    if (confirm('이 지식 요소를 삭제하시겠습니까?')) {
+      setKnowledgeElements(knowledgeElements.filter(ke => ke.id !== elementId));
+    }
+  };
+
+  // 지식 요소 편집 취소
+  const cancelEditKnowledgeElement = () => {
+    setEditingKnowledgeElement(null);
+    setNewKnowledgeElement({
+      category: 'concept',
+      element: '',
+      description: '',
+      source: '',
+      cognitiveLevel: 'remember'
+    });
   };
 
   return (
@@ -804,6 +914,176 @@ const ProblemsManagement = () => {
                   placeholder="메모나 비고사항을 입력하세요..."
                 />
               </div>
+
+              {/* 관련 지식 요소 */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="block text-sm font-medium text-gray-700">관련 지식 요소</label>
+                  {knowledgeElements.length > 0 && !editingKnowledgeElement && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingKnowledgeElement(null);
+                        setNewKnowledgeElement({
+                          category: 'concept',
+                          element: '',
+                          description: '',
+                          source: '',
+                          cognitiveLevel: 'remember'
+                        });
+                      }}
+                      className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      + 지식 요소 추가
+                    </button>
+                  )}
+                </div>
+
+                {/* 지식 요소 목록 */}
+                {knowledgeElements.length > 0 && (
+                  <div className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">구분</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">지식요소</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">내용 설명</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">출처(성취기준)</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">인지 수준</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">작업</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {knowledgeElements.map((ke) => (
+                            <tr key={ke.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {ke.category === 'concept' ? '개념' : 
+                                 ke.category === 'principle' ? '원리' : 
+                                 ke.category === 'procedure' ? '절차' : '통합'}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-900">{ke.element}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600 max-w-xs truncate">{ke.description}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{ke.source || '-'}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {ke.cognitiveLevel === 'remember' ? '기억' :
+                                 ke.cognitiveLevel === 'understand' ? '이해' :
+                                 ke.cognitiveLevel === 'apply' ? '적용' :
+                                 ke.cognitiveLevel === 'analyze' ? '분석' :
+                                 ke.cognitiveLevel === 'synthesize' ? '종합' : '평가'}
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditKnowledgeElement(ke)}
+                                    className="text-blue-600 hover:text-blue-800 text-xs"
+                                    title="편집"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteKnowledgeElement(ke.id)}
+                                    className="text-red-600 hover:text-red-800 text-xs"
+                                    title="삭제"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* 지식 요소 추가/편집 폼 */}
+                {(knowledgeElements.length === 0 || editingKnowledgeElement) && (
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">구분 *</label>
+                        <select
+                          value={newKnowledgeElement.category || 'concept'}
+                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, category: e.target.value as KnowledgeElement['category'] }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        >
+                          <option value="concept">개념</option>
+                          <option value="principle">원리</option>
+                          <option value="procedure">절차</option>
+                          <option value="integration">통합</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">인지 수준 *</label>
+                        <select
+                          value={newKnowledgeElement.cognitiveLevel || 'remember'}
+                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, cognitiveLevel: e.target.value as KnowledgeElement['cognitiveLevel'] }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        >
+                          <option value="remember">기억</option>
+                          <option value="understand">이해</option>
+                          <option value="apply">적용</option>
+                          <option value="analyze">분석</option>
+                          <option value="synthesize">종합</option>
+                          <option value="evaluate">평가</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">지식요소 *</label>
+                      <input
+                        type="text"
+                        value={newKnowledgeElement.element || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, element: e.target.value }))}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder="예: 삼각비의 정의"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">내용 설명 *</label>
+                      <textarea
+                        value={newKnowledgeElement.description || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, description: e.target.value }))}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        rows={2}
+                        placeholder="예: 직각삼각형에서 sin, cos, tan의 비 정의"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">출처(성취기준)</label>
+                      <input
+                        type="text"
+                        value={newKnowledgeElement.source || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, source: e.target.value }))}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder="예: [9수03-16]"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      {editingKnowledgeElement && (
+                        <button
+                          type="button"
+                          onClick={cancelEditKnowledgeElement}
+                          className="px-3 py-1.5 text-xs text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
+                        >
+                          취소
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={saveKnowledgeElement}
+                        className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                      >
+                        {editingKnowledgeElement ? '수정' : '추가'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">
@@ -904,6 +1184,49 @@ const ProblemsManagement = () => {
                   <p className="text-gray-600 whitespace-pre-wrap bg-gray-50 p-3 rounded border border-gray-200">
                     {viewingProblem.notes}
                   </p>
+                </div>
+              )}
+
+              {/* 관련 지식 요소 */}
+              {viewingProblem.knowledgeElements && viewingProblem.knowledgeElements.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">관련 지식 요소</h3>
+                  <div className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">구분</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">지식요소</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">내용 설명</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">출처(성취기준)</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">인지 수준</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {viewingProblem.knowledgeElements.map((ke) => (
+                            <tr key={ke.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {ke.category === 'concept' ? '개념' : 
+                                 ke.category === 'principle' ? '원리' : 
+                                 ke.category === 'procedure' ? '절차' : '통합'}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-900 font-medium">{ke.element}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{ke.description}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">{ke.source || '-'}</td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {ke.cognitiveLevel === 'remember' ? '기억' :
+                                 ke.cognitiveLevel === 'understand' ? '이해' :
+                                 ke.cognitiveLevel === 'apply' ? '적용' :
+                                 ke.cognitiveLevel === 'analyze' ? '분석' :
+                                 ke.cognitiveLevel === 'synthesize' ? '종합' : '평가'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 

@@ -18,6 +18,14 @@ export interface Problem {
   grade?: string;
   unit?: string;
   notes?: string;
+  knowledgeElements?: Array<{
+    id: string;
+    category: 'concept' | 'principle' | 'procedure' | 'integration';
+    element: string;
+    description: string;
+    source: string;
+    cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
+  }>;
   difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
   updatedAt: string;
