@@ -5,13 +5,11 @@ import {
   Edit2,
   Trash2,
   Search,
-  Filter,
   Upload,
-  Download,
   Eye,
   X,
-  Check,
-  Image
+  Image,
+  ChevronDown
 } from 'lucide-react';
 
 interface Problem {
@@ -21,37 +19,236 @@ interface Problem {
   imageUrl?: string;
   explanationImageUrl?: string;
   explanationText?: string;
-  category?: string;
   grade?: string;
   unit?: string;
-  difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
   updatedAt: string;
 }
 
+interface SearchableSelectProps {
+  label?: string;
+  placeholder: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  onAddNew: (value: string) => void;
+  emptyText?: string;
+}
+
+const SearchableSelect: React.FC<SearchableSelectProps> = ({
+  label,
+  placeholder,
+  options,
+  value,
+  onChange,
+  onAddNew,
+  emptyText = '항목 없음'
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [newValue, setNewValue] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedLabel = value || placeholder;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setIsAddingNew(false);
+        setSearchQuery('');
+        setNewValue('');
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isAddingNew && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isAddingNew]);
+
+  const handleAddNew = () => {
+    if (!newValue.trim()) {
+      return;
+    }
+    if (options.includes(newValue.trim())) {
+      alert('이미 존재하는 항목입니다.');
+      return;
+    }
+    onAddNew(newValue.trim());
+    onChange(newValue.trim());
+    setIsAddingNew(false);
+    setNewValue('');
+    setSearchQuery('');
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2 text-left border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+      >
+        <span className={value ? 'text-gray-900' : 'text-gray-400'}>{selectedLabel}</span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg">
+          {/* 검색 바 */}
+          <div className="p-2 border-b border-gray-200">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsAddingNew(false);
+                  setNewValue('');
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                placeholder="검색..."
+              />
+            </div>
+          </div>
+
+          {/* 목록 */}
+          <div className="max-h-60 overflow-y-auto">
+            {filteredOptions.length === 0 && !isAddingNew && searchQuery && (
+              <div className="p-3 text-center text-sm text-gray-500">
+                검색 결과가 없습니다
+              </div>
+            )}
+            {filteredOptions.length === 0 && !isAddingNew && !searchQuery && (
+              <div className="p-3 text-center text-sm text-gray-500">
+                {emptyText}
+              </div>
+            )}
+            {filteredOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  onChange(option);
+                  setIsOpen(false);
+                  setSearchQuery('');
+                }}
+                className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center ${
+                  value === option ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
+          {/* 구분선 및 새 항목 추가 */}
+          {!isAddingNew && (
+            <>
+              <div className="border-t border-gray-200 border-dashed"></div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingNew(true);
+                  setSearchQuery('');
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-blue-50 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                새 항목 추가
+              </button>
+            </>
+          )}
+
+          {/* 새 항목 입력 */}
+          {isAddingNew && (
+            <div className="p-2 border-t border-gray-200 bg-gray-50">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleAddNew();
+                    } else if (e.key === 'Escape') {
+                      setIsAddingNew(false);
+                      setNewValue('');
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  placeholder="새 항목 입력..."
+                />
+                <button
+                  type="button"
+                  onClick={handleAddNew}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                >
+                  추가
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingNew(false);
+                    setNewValue('');
+                  }}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ProblemsManagement = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [selectedDifficulty, setSelectedDifficulty] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingProblem, setEditingProblem] = useState<Problem | null>(null);
   const [viewingProblem, setViewingProblem] = useState<Problem | null>(null);
   const [inputMode, setInputMode] = useState<'text' | 'image'>('text');
+  const [explanationInputMode, setExplanationInputMode] = useState<'text' | 'image'>('text');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [explanationImageFile, setExplanationImageFile] = useState<File | null>(null);
   const [explanationImagePreview, setExplanationImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const explanationFileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 학년/단원 목록 관리
+  const [grades, setGrades] = useState<string[]>([]);
+  const [units, setUnits] = useState<string[]>([]);
 
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
     content: '',
-    category: '',
     grade: '',
     unit: '',
-    difficulty: 'medium',
     explanationText: ''
   });
 
@@ -65,7 +262,7 @@ const ProblemsManagement = () => {
 
   const uid = () => Math.random().toString(36).slice(2);
 
-  // 로컬스토리지에서 문제 로드
+  // 로컬스토리지에서 문제 및 학년/단원 목록 로드
   useEffect(() => {
     const storedProblems = localStorage.getItem('math_tutor_problems');
     if (storedProblems) {
@@ -73,6 +270,24 @@ const ProblemsManagement = () => {
         setProblems(JSON.parse(storedProblems));
       } catch (e) {
         console.error('Failed to load problems:', e);
+      }
+    }
+
+    // 학년/단원 목록 로드
+    const storedGrades = localStorage.getItem('math_tutor_grades');
+    const storedUnits = localStorage.getItem('math_tutor_units');
+    if (storedGrades) {
+      try {
+        setGrades(JSON.parse(storedGrades));
+      } catch (e) {
+        console.error('Failed to load grades:', e);
+      }
+    }
+    if (storedUnits) {
+      try {
+        setUnits(JSON.parse(storedUnits));
+      } catch (e) {
+        console.error('Failed to load units:', e);
       }
     }
   }, []);
@@ -83,19 +298,29 @@ const ProblemsManagement = () => {
     setProblems(problemsToSave);
   };
 
+  // 학년 추가
+  const handleAddGrade = (value: string) => {
+    const updatedGrades = [...grades, value].sort();
+    setGrades(updatedGrades);
+    localStorage.setItem('math_tutor_grades', JSON.stringify(updatedGrades));
+  };
+
+  // 단원 추가
+  const handleAddUnit = (value: string) => {
+    const updatedUnits = [...units, value].sort();
+    setUnits(updatedUnits);
+    localStorage.setItem('math_tutor_units', JSON.stringify(updatedUnits));
+  };
+
   // 필터링된 문제
   const filteredProblems = problems.filter(problem => {
     const matchesSearch = problem.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         problem.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         (problem.category && problem.category.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesCategory = !selectedCategory || problem.category === selectedCategory;
-    const matchesDifficulty = !selectedDifficulty || problem.difficulty === selectedDifficulty;
+                         problem.content.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesGrade = !selectedGrade || problem.grade === selectedGrade;
+    const matchesUnit = !selectedUnit || problem.unit === selectedUnit;
 
-    return matchesSearch && matchesCategory && matchesDifficulty;
+    return matchesSearch && matchesGrade && matchesUnit;
   });
-
-  // 고유 카테고리 목록
-  const categories = [...new Set(problems.map(p => p.category).filter(Boolean))];
 
   // 이미지 업로드 핸들러
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'problem' | 'explanation') => {
@@ -144,10 +369,8 @@ const ProblemsManagement = () => {
       imageUrl: newProblem.imageUrl,
       explanationImageUrl: newProblem.explanationImageUrl,
       explanationText: newProblem.explanationText?.trim() || undefined,
-      category: newProblem.category?.trim() || '',
       grade: newProblem.grade?.trim() || '',
       unit: newProblem.unit?.trim() || '',
-      difficulty: newProblem.difficulty || 'medium',
       createdAt: nowTime(),
       updatedAt: nowTime()
     };
@@ -173,10 +396,8 @@ const ProblemsManagement = () => {
             imageUrl: newProblem.imageUrl,
             explanationImageUrl: newProblem.explanationImageUrl,
             explanationText: newProblem.explanationText?.trim() || undefined,
-            category: newProblem.category?.trim() || '',
             grade: newProblem.grade?.trim() || '',
             unit: newProblem.unit?.trim() || '',
-            difficulty: newProblem.difficulty || 'medium',
             updatedAt: nowTime()
           }
         : p
@@ -199,13 +420,12 @@ const ProblemsManagement = () => {
     setNewProblem({
       title: '',
       content: '',
-      category: '',
       grade: '',
       unit: '',
-      difficulty: 'medium',
       explanationText: ''
     });
     setInputMode('text');
+    setExplanationInputMode('text');
     setImageFile(null);
     setImagePreview(null);
     setExplanationImageFile(null);
@@ -223,35 +443,20 @@ const ProblemsManagement = () => {
       imageUrl: problem.imageUrl,
       explanationImageUrl: problem.explanationImageUrl,
       explanationText: problem.explanationText,
-      category: problem.category,
       grade: problem.grade,
-      unit: problem.unit,
-      difficulty: problem.difficulty
+      unit: problem.unit
     });
     if (problem.imageUrl) {
       setInputMode('image');
       setImagePreview(problem.imageUrl);
+    } else {
+      setInputMode('text');
     }
     if (problem.explanationImageUrl) {
+      setExplanationInputMode('image');
       setExplanationImagePreview(problem.explanationImageUrl);
-    }
-  };
-
-  const getDifficultyColor = (difficulty?: string) => {
-    switch (difficulty) {
-      case 'easy': return 'bg-green-100 text-green-800';
-      case 'medium': return 'bg-yellow-100 text-yellow-800';
-      case 'hard': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getDifficultyText = (difficulty?: string) => {
-    switch (difficulty) {
-      case 'easy': return '쉬움';
-      case 'medium': return '보통';
-      case 'hard': return '어려움';
-      default: return '미정';
+    } else {
+      setExplanationInputMode('text');
     }
   };
 
@@ -277,7 +482,8 @@ const ProblemsManagement = () => {
 
       {/* 검색 및 필터 */}
       <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-        <div className="flex flex-col sm:flex-row gap-4">
+        <div className="space-y-4">
+          {/* 검색 바 */}
           <div className="flex-1">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -285,31 +491,41 @@ const ProblemsManagement = () => {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="문제 제목, 내용, 카테고리 검색..."
+                placeholder="문제 제목, 내용 검색..."
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
           </div>
-          <select
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="">모든 카테고리</option>
-            {categories.map(category => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
-          <select
-            value={selectedDifficulty}
-            onChange={(e) => setSelectedDifficulty(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="">모든 난이도</option>
-            <option value="easy">쉬움</option>
-            <option value="medium">보통</option>
-            <option value="hard">어려움</option>
-          </select>
+
+          {/* 학년/단원 필터 */}
+          <div className="flex flex-col sm:flex-row gap-4">
+            {/* 학년 필터 */}
+            <div className="flex-1">
+              <SearchableSelect
+                placeholder="모든 학년"
+                options={grades}
+                value={selectedGrade}
+                onChange={(value) => {
+                  setSelectedGrade(value);
+                  setSelectedUnit(''); // 학년 변경 시 단원 초기화
+                }}
+                onAddNew={handleAddGrade}
+                emptyText="학년 없음"
+              />
+            </div>
+
+            {/* 단원 필터 */}
+            <div className="flex-1">
+              <SearchableSelect
+                placeholder="모든 단원"
+                options={units}
+                value={selectedUnit}
+                onChange={setSelectedUnit}
+                onAddNew={handleAddUnit}
+                emptyText="단원 없음"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -339,7 +555,11 @@ const ProblemsManagement = () => {
                         )}
                       </div>
                       <p className="text-sm text-gray-600 mb-2 line-clamp-2">
-                        {problem.content || '이미지 문제'}
+                        {problem.content && !problem.content.startsWith('[이미지 문제:') 
+                          ? problem.content 
+                          : problem.imageUrl 
+                            ? '이미지 문제' 
+                            : '문제 내용 없음'}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {problem.grade && (
@@ -347,19 +567,11 @@ const ProblemsManagement = () => {
                             {problem.grade}
                           </span>
                         )}
-                        {problem.category && (
-                          <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">
-                            {problem.category}
-                          </span>
-                        )}
                         {problem.unit && (
                           <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">
                             {problem.unit}
                           </span>
                         )}
-                        <span className={`px-2 py-1 rounded text-xs ${getDifficultyColor(problem.difficulty)}`}>
-                          {getDifficultyText(problem.difficulty)}
-                        </span>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2 ml-4">
@@ -429,51 +641,29 @@ const ProblemsManagement = () => {
               </div>
 
               {/* 메타 정보 */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">학년</label>
-                  <input
-                    type="text"
-                    value={newProblem.grade}
-                    onChange={(e) => setNewProblem(prev => ({ ...prev, grade: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="예: 중3"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">단원</label>
-                  <input
-                    type="text"
-                    value={newProblem.unit}
-                    onChange={(e) => setNewProblem(prev => ({ ...prev, unit: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="예: 이차방정식"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">분류</label>
-                  <input
-                    type="text"
-                    value={newProblem.category}
-                    onChange={(e) => setNewProblem(prev => ({ ...prev, category: e.target.value }))}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="예: 함수"
-                  />
-                </div>
-              </div>
-
-              {/* 난이도 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">난이도</label>
-                <select
-                  value={newProblem.difficulty}
-                  onChange={(e) => setNewProblem(prev => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option value="easy">쉬움</option>
-                  <option value="medium">보통</option>
-                  <option value="hard">어려움</option>
-                </select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <SearchableSelect
+                  label="학년"
+                  placeholder="선택하세요"
+                  options={grades}
+                  value={newProblem.grade || ''}
+                  onChange={(value) => {
+                    setNewProblem(prev => ({ ...prev, grade: value }));
+                  }}
+                  onAddNew={handleAddGrade}
+                  emptyText="학년 없음"
+                />
+                <SearchableSelect
+                  label="단원"
+                  placeholder="선택하세요"
+                  options={units}
+                  value={newProblem.unit || ''}
+                  onChange={(value) => {
+                    setNewProblem(prev => ({ ...prev, unit: value }));
+                  }}
+                  onAddNew={handleAddUnit}
+                  emptyText="단원 없음"
+                />
               </div>
 
               {/* 문제 입력 방식 */}
@@ -538,11 +728,41 @@ const ProblemsManagement = () => {
               {/* 해설 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">해설 (선택사항)</label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setExplanationInputMode('text')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      explanationInputMode === 'text'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    텍스트
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExplanationInputMode('image')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      explanationInputMode === 'image'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    이미지
+                  </button>
+                </div>
 
-                <div className="space-y-4">
-                  {/* 해설 이미지 */}
+                {explanationInputMode === 'text' ? (
+                  <textarea
+                    value={newProblem.explanationText || ''}
+                    onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    rows={4}
+                    placeholder="해설을 입력하세요..."
+                  />
+                ) : (
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1">해설 이미지</label>
                     <input
                       ref={explanationFileInputRef}
                       type="file"
@@ -551,6 +771,7 @@ const ProblemsManagement = () => {
                       className="hidden"
                     />
                     <button
+                      type="button"
                       onClick={() => explanationFileInputRef.current?.click()}
                       className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
                     >
@@ -558,24 +779,12 @@ const ProblemsManagement = () => {
                       해설 이미지 선택
                     </button>
                     {explanationImagePreview && (
-                      <div className="mt-2">
+                      <div className="mt-3">
                         <img src={explanationImagePreview} alt="해설 미리보기" className="max-w-full h-auto border border-orange-300 rounded" />
                       </div>
                     )}
                   </div>
-
-                  {/* 해설 텍스트 */}
-                  <div>
-                    <label className="block text-sm text-gray-600 mb-1">해설 텍스트</label>
-                    <textarea
-                      value={newProblem.explanationText}
-                      onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
-                      rows={3}
-                      placeholder="해설을 입력하세요..."
-                    />
-                  </div>
-                </div>
+                )}
               </div>
             </div>
 
@@ -630,14 +839,6 @@ const ProblemsManagement = () => {
                     {viewingProblem.unit}
                   </span>
                 )}
-                {viewingProblem.category && (
-                  <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm">
-                    {viewingProblem.category}
-                  </span>
-                )}
-                <span className={`px-3 py-1 rounded-full text-sm ${getDifficultyColor(viewingProblem.difficulty)}`}>
-                  {getDifficultyText(viewingProblem.difficulty)}
-                </span>
               </div>
 
               {/* 문제 내용 */}
@@ -650,7 +851,7 @@ const ProblemsManagement = () => {
                       alt="문제 이미지"
                       className="w-full max-h-64 object-contain border border-gray-200 rounded p-2 mb-2"
                     />
-                    {viewingProblem.content && (
+                    {viewingProblem.content && !viewingProblem.content.startsWith('[이미지 문제:') && (
                       <p className="text-gray-600 text-sm">{viewingProblem.content}</p>
                     )}
                   </div>

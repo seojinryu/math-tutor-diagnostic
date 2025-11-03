@@ -1,6 +1,8 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText } from 'lucide-react';
+import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText, ChevronRight, Settings } from 'lucide-react';
+import type { LLMConfig } from '../admin/prompt/page';
+import { DEFAULT_RESPONSE_SCHEMA } from '../admin/prompt/page';
 
 /**********************
  * Types
@@ -44,6 +46,8 @@ export interface Message {
   debug?: string;
   problemId?: string;
 }
+
+// LLMConfig는 admin/prompt/page에서 import
 
 /**********************
  * Utilities
@@ -186,19 +190,19 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
 /**********************
  * Gemini AI Integration
  **********************/
-interface GeminiArgs {
-  apiKey: string;
-  systemPrompt: string;
-  problem: string;
-  problemImage?: string;
-  explanationImage?: string;
-  explanationText?: string;
-  userMessage: string;
-  context: string;
-  signal?: AbortSignal;
-}
+// 기본 LLM 설정 (fallback용)
+const DEFAULT_LLM_CONFIG: Partial<LLMConfig> = {
+  model: 'gemini-2.5-pro',
+  temperature: 0,
+  maxOutputTokens: 8192,
+  thinkingBudget: 1800,
+  responseMimeType: 'application/json',
+  systemPrompt: '',
+  outputSchema: DEFAULT_RESPONSE_SCHEMA
+};
 
-const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 AI입니다. 
+// 기본 프롬프트 (fallback용)
+const DEFAULT_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 AI입니다.
 주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요:
 
 ### **입력 데이터**
@@ -218,7 +222,7 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
    - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
 
 3. **다음 질문 제안**:
-   - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?") 
+   - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?")
    - 4단계(되돌아보기)는 AI가 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
 
 4. **피드백 완료 여부 판단**:
@@ -239,6 +243,30 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아의 4단계 문제해결 접근�
   "next_question": "학생에게 제안할 질문 또는 힌트",
   "feedback_completed": "true/false"
 }`;
+
+// 사용 가능한 모델 목록
+const AVAILABLE_MODELS = [
+  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+  { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' }
+];
+
+interface GeminiArgs {
+  systemPrompt: string;
+  model: string;
+  temperature: number;
+  maxOutputTokens: number;
+  thinkingBudget: number;
+  responseSchema?: typeof DEFAULT_RESPONSE_SCHEMA;
+  responseMimeType: string;
+  problem: string;
+  problemImage?: string;
+  explanationImage?: string;
+  explanationText?: string;
+  userMessage: string;
+  context: string;
+  signal?: AbortSignal;
+}
 
 
 const buildContext = (msgs: Message[]) =>
@@ -264,27 +292,7 @@ interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates
 /**********************
  * Gemini API Call
  **********************/
-async function callGemini({ apiKey, systemPrompt, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: GeminiArgs): Promise<DiagnosticData> {
-  const responseSchema = {
-    type: "OBJECT",
-    properties: {
-      diagnosis: {
-        type: "OBJECT",
-        properties: {
-          problem_understanding: { type: "STRING", enum: ["low","medium","high"] },
-          concept_knowledge:    { type: "STRING", enum: ["low","medium","high"] },
-          error_pattern:        { type: "STRING", enum: ["none","calculation_error","logical_error","concept_confusion","approach_error"] },
-          confidence_level:     { type: "STRING", enum: ["low","medium","high"] }
-        },
-        required: ["problem_understanding","concept_knowledge","error_pattern","confidence_level"]
-      },
-      recommended_stage: { type: "STRING", enum: ["1","2","3","4"] },
-      stage_reason:      { type: "STRING" },
-      next_question:     { type: "STRING" },
-      feedback_completed: { type: "BOOLEAN" }
-    },
-    required: ["diagnosis","recommended_stage","stage_reason","next_question","feedback_completed"]
-  } as const;
+async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, thinkingBudget, responseSchema, responseMimeType, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: GeminiArgs): Promise<DiagnosticData> {
 
   // 이미지가 있는 경우와 없는 경우를 구분하여 처리
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
@@ -338,36 +346,53 @@ async function callGemini({ apiKey, systemPrompt, problem, problemImage, explana
     text: textContent
   });
 
-  const body = {
-    systemInstruction: {
-      role: "system",
-      parts: [{ text: systemPrompt }]
-    },
-    contents: [
-      {
-        role: "user",
-        parts: userParts
-      }
-    ],
-    generationConfig: {
-      temperature: 0,
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json",
-      responseSchema,
-      thinkingConfig: {
-        thinkingBudget: 1800
-      }
+  const generationConfig = {
+    temperature: temperature,
+    maxOutputTokens: maxOutputTokens,
+    responseMimeType: responseMimeType,
+    ...(responseMimeType === 'application/json' && { responseSchema }),
+    thinkingConfig: {
+      thinkingBudget: thinkingBudget
     }
   };
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${apiKey}`,
-    { method: "POST", headers: { "Content-Type": "application/json" }, signal, body: JSON.stringify(body) }
-  );
+  // 🔍 API 호출 전 설정 값 로깅 (개발 환경에서만)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔍 [API 호출 설정 확인]', {
+      model,
+      temperature,
+      maxOutputTokens,
+      thinkingBudget,
+      responseMimeType,
+      hasResponseSchema: !!responseSchema,
+      systemPromptLength: systemPrompt.length,
+      systemPromptPreview: systemPrompt.substring(0, 100) + '...',
+    });
+  }
+
+  // 서버 사이드 API 엔드포인트 호출
+  const controller = signal ? new AbortController() : null;
+  if (signal && controller) {
+    signal.addEventListener('abort', () => controller.abort());
+  }
+
+  const res = await fetch('/api/gemini', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    signal: controller?.signal || signal,
+    body: JSON.stringify({
+      model,
+      systemPrompt,
+      userParts,
+      generationConfig
+    })
+  });
 
   if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`Gemini API 오류: ${res.status} ${res.statusText} - ${t}`);
+    const errorData = await res.json().catch(() => ({ error: '알 수 없는 오류' }));
+    throw new Error(errorData.error || `서버 오류: ${res.status} ${res.statusText}`);
   }
 
   const data = (await res.json()) as GeminiResponse & {
@@ -414,12 +439,19 @@ const MathTutorDiagnostic: React.FC = () => {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [selectedProblemId, setSelectedProblemId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [apiKey, setApiKey] = useState('');
   const [currentDiagnostic, setCurrentDiagnostic] = useState<DiagnosticData | null>(null);
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [showProblemManager, setShowProblemManager] = useState(false);
   const [showDiagnosticDetail, setShowDiagnosticDetail] = useState<Record<string, boolean>>({});
   const [customPrompt, setCustomPrompt] = useState('');
+  const [responseSchema, setResponseSchema] = useState<typeof DEFAULT_RESPONSE_SCHEMA>(DEFAULT_RESPONSE_SCHEMA);
+  const [responseMimeType, setResponseMimeType] = useState<string>('application/json');
+  const [model, setModel] = useState('gemini-2.5-pro');
+  const [temperature, setTemperature] = useState(0);
+  const [maxOutputTokens, setMaxOutputTokens] = useState(8192);
+  const [thinkingBudget, setThinkingBudget] = useState(1800);
+  const [llmConfigs, setLlmConfigs] = useState<LLMConfig[]>([]);
+  const [activeConfigId, setActiveConfigId] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(true);
   
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
@@ -433,8 +465,8 @@ const MathTutorDiagnostic: React.FC = () => {
 
   const abortRef = useRef<AbortController | null>(null);
   const SYSTEM_PROMPT_JSON = useMemo(() => {
-    const basePrompt = customPrompt || SYSTEM_PROMPT_BASE;
-    return `${basePrompt}
+    const prompt = customPrompt || DEFAULT_PROMPT;
+    return `${prompt}
 
 ---
 반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(\`\`\`), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.`;
@@ -457,16 +489,102 @@ const MathTutorDiagnostic: React.FC = () => {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
-  // Load custom prompt from localStorage
+  // Load LLM configs from localStorage
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const storedPrompt = localStorage.getItem('math_tutor_custom_prompt');
-    if (storedPrompt) {
-      setCustomPrompt(storedPrompt);
-    } else {
-      setCustomPrompt(SYSTEM_PROMPT_BASE);
-    }
+    
+    const loadConfig = (config: LLMConfig) => {
+      setCustomPrompt(config.systemPrompt);
+      setResponseSchema(config.outputSchema || DEFAULT_RESPONSE_SCHEMA);
+      setResponseMimeType(config.responseMimeType || 'application/json');
+      setModel(config.model);
+      setTemperature(config.temperature);
+      setMaxOutputTokens(config.maxOutputTokens);
+      setThinkingBudget(config.thinkingBudget);
+      setActiveConfigId(config.id);
+    };
+
+    const loadActiveConfig = () => {
+      const storedConfigs = localStorage.getItem('math_tutor_llm_configs');
+      const activeConfigId = localStorage.getItem('math_tutor_active_llm_config_id');
+
+      if (storedConfigs) {
+        try {
+          const parsedConfigs = JSON.parse(storedConfigs) as LLMConfig[];
+          setLlmConfigs(parsedConfigs);
+
+          // 활성 설정 찾기
+          if (activeConfigId) {
+            const activeConfig = parsedConfigs.find(c => c.id === activeConfigId);
+            if (activeConfig) {
+              loadConfig(activeConfig);
+              return;
+            }
+          }
+
+          // 활성 설정이 없으면 첫 번째 활성 설정 사용
+          const activeConfig = parsedConfigs.find(c => c.isActive) || parsedConfigs[0];
+          if (activeConfig) {
+            loadConfig(activeConfig);
+            localStorage.setItem('math_tutor_active_llm_config_id', activeConfig.id);
+            return;
+          }
+        } catch (e) {
+          console.error('Failed to load configs:', e);
+        }
+      }
+
+      // 설정이 없으면 기본값 사용
+      if (!storedConfigs) {
+        setCustomPrompt(DEFAULT_PROMPT);
+        setResponseSchema(DEFAULT_RESPONSE_SCHEMA);
+        setResponseMimeType('application/json');
+        setModel(DEFAULT_LLM_CONFIG.model || 'gemini-2.5-pro');
+        setTemperature(DEFAULT_LLM_CONFIG.temperature || 0);
+        setMaxOutputTokens(DEFAULT_LLM_CONFIG.maxOutputTokens || 8192);
+        setThinkingBudget(DEFAULT_LLM_CONFIG.thinkingBudget || 1800);
+      }
+    };
+    
+    // 초기 로드
+    loadActiveConfig();
+    
+    // storage 이벤트 감지
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'math_tutor_llm_configs' || e.key === 'math_tutor_active_llm_config_id') {
+        loadActiveConfig();
+      }
+    };
+    
+    // 커스텀 이벤트 감지
+    const handleConfigUpdate = () => {
+      loadActiveConfig();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('llmConfigUpdated', handleConfigUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('llmConfigUpdated', handleConfigUpdate);
+    };
   }, []);
+
+  // LLM 설정 변경 핸들러
+  const handleConfigChange = (configId: string) => {
+    const config = llmConfigs.find(c => c.id === configId);
+    if (config) {
+      setCustomPrompt(config.systemPrompt);
+      setResponseSchema(config.outputSchema || DEFAULT_RESPONSE_SCHEMA);
+      setResponseMimeType(config.responseMimeType || 'application/json');
+      setModel(config.model);
+      setTemperature(config.temperature);
+      setMaxOutputTokens(config.maxOutputTokens);
+      setThinkingBudget(config.thinkingBudget);
+      setActiveConfigId(configId);
+      localStorage.setItem('math_tutor_active_llm_config_id', configId);
+    }
+  };
 
 
   // Load problems from localStorage
@@ -517,26 +635,6 @@ const MathTutorDiagnostic: React.FC = () => {
     localStorage.setItem('math_tutor_problems', JSON.stringify(problems));
   }, [problems]);
 
-
-  // 환경변수에서 API 키 로드
-  useEffect(() => {
-    // 먼저 환경변수 직접 확인
-    const envApiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-    if (envApiKey) {
-      setApiKey(envApiKey);
-    } else {
-      // API 엔드포인트에서 가져오기
-      fetch('/api/config')
-        .then(res => res.json())
-        .then(data => {
-          if (data.apiKey) {
-            setApiKey(data.apiKey);
-          }
-        })
-        .catch(err => console.error('Failed to load API key:', err));
-    }
-  }, []);
-
   const clearChat = () => {
     setMessages([]);
     setCurrentDiagnostic(null);
@@ -555,9 +653,29 @@ const MathTutorDiagnostic: React.FC = () => {
     if (!currentProblem) {
       throw new Error('문제가 선택되지 않았습니다.');
     }
+    
+    // 🔍 API 호출 전 설정 값 확인 로깅 (개발 환경에서만)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [sendToGemini 호출 전 설정 확인]', {
+        activeConfigId,
+        model,
+        temperature,
+        maxOutputTokens,
+        thinkingBudget,
+        responseMimeType,
+        hasResponseSchema: !!responseSchema,
+        systemPromptLength: SYSTEM_PROMPT_JSON?.length || 0,
+      });
+    }
+    
     const args: GeminiArgs = {
-      apiKey,
       systemPrompt: SYSTEM_PROMPT_JSON,
+      model,
+      temperature,
+      maxOutputTokens,
+      thinkingBudget,
+      responseSchema,
+      responseMimeType,
       problem: currentProblem.content || '이미지 문제',
       problemImage: currentProblem.imageUrl,
       explanationImage: currentProblem.explanationImageUrl,
@@ -567,14 +685,10 @@ const MathTutorDiagnostic: React.FC = () => {
       signal: abortRef.current?.signal,
     };
     return callGemini(args);
-  }, [apiKey, SYSTEM_PROMPT_JSON, currentProblem, contextText]);
+  }, [SYSTEM_PROMPT_JSON, model, temperature, maxOutputTokens, thinkingBudget, responseSchema, responseMimeType, currentProblem, contextText, activeConfigId]);
 
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
-    if (!apiKey) {
-      alert('API 키를 먼저 입력해주세요.');
-      return;
-    }
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
@@ -673,7 +787,7 @@ const MathTutorDiagnostic: React.FC = () => {
       >
         {/* Header - Fixed */}
         <div className="flex-none px-4 py-3 border-b border-slate-200/60 bg-white/80 backdrop-blur-sm">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-4">
             <div>
               <h1 className="text-lg sm:text-xl lg:text-2xl font-semibold text-slate-900 flex items-center gap-2">
                 <div className="p-2 bg-gradient-to-br from-blue-200 to-cyan-300 rounded-lg shadow-sm">
@@ -684,18 +798,19 @@ const MathTutorDiagnostic: React.FC = () => {
                 </span>
               </h1>
             </div>
-            <a
-              href="/admin"
-              className="px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 bg-slate-100 text-slate-700 hover:bg-slate-200 hover:scale-105 border border-slate-200 "
-            >
-              <FileText className="w-4 h-4 inline mr-2" />
-              관리자
-            </a>
+            <div className="flex items-center gap-3">
+              <a
+                href="/admin/problems"
+                className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200 flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Admin
+              </a>
+            </div>
           </div>
         </div>
 
       {/* API 키가 환경변수로 설정되어 있으므로 UI에서 제거 */}
-
 
         {/* App Wrapper with responsive grid */}
         <div
@@ -774,29 +889,9 @@ const MathTutorDiagnostic: React.FC = () => {
                           {currentProblem.unit}
                         </span>
                       )}
-                      {currentProblem.difficulty && (
-                        <span className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
-                          currentProblem.difficulty === 'easy' ? 'bg-emerald-100/80 text-emerald-700 border-emerald-200/50' :
-                          currentProblem.difficulty === 'medium' ? 'bg-amber-100/80 text-amber-700 border-amber-200/50' :
-                          'bg-rose-100/80 text-rose-700 border-rose-200/50'
-                        }`}>
-                          {currentProblem.difficulty === 'easy' ? '쉬움' :
-                           currentProblem.difficulty === 'medium' ? '보통' : '어려움'}
-                        </span>
-                      )}
-                      {currentProblem.category && (
-                        <span className="px-3 py-1.5 bg-purple-100/80 text-purple-700 rounded-lg text-xs font-medium border border-purple-200/50">
-                          {currentProblem.category}
-                        </span>
-                      )}
                       {currentProblem.explanationImageUrl && (
                         <span className="px-3 py-1.5 bg-orange-100/80 text-orange-700 rounded-lg text-xs font-medium border border-orange-200/50">
                           해설 이미지
-                        </span>
-                      )}
-                      {currentProblem.explanationText && (
-                        <span className="px-3 py-1.5 bg-teal-100/80 text-teal-700 rounded-lg text-xs font-medium border border-teal-200/50">
-                          해설 텍스트
                         </span>
                       )}
                     </div>
@@ -810,7 +905,7 @@ const MathTutorDiagnostic: React.FC = () => {
                           alt="문제 이미지"
                           className="w-full max-h-64 object-contain border border-gray-200 rounded p-2"
                         />
-                        {currentProblem.content && (
+                        {currentProblem.content && !currentProblem.content.startsWith('[이미지 문제:') && (
                           <p className="text-slate-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
                         )}
                       </div>
@@ -856,10 +951,16 @@ const MathTutorDiagnostic: React.FC = () => {
                       <div className="flex justify-between items-center">
                         <div className="flex-1">
                           <h3 className="font-medium text-slate-900 text-sm">{problem.title}</h3>
-                          <p className="text-xs text-slate-600 mt-1">{problem.content ? problem.content.substring(0, 100) + '...' : '이미지 문제'}</p>
+                          <p className="text-xs text-slate-600 mt-1">
+                            {problem.content && !problem.content.startsWith('[이미지 문제:') 
+                              ? problem.content.substring(0, 100) + '...' 
+                              : problem.imageUrl 
+                                ? '이미지 문제' 
+                                : '문제 내용 없음'}
+                          </p>
                           <div className="flex gap-1 mt-2">
                             {problem.grade && <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">{problem.grade}</span>}
-                            {problem.category && <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs">{problem.category}</span>}
+                            {problem.unit && <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">{problem.unit}</span>}
                           </div>
                         </div>
                         <div className="flex gap-1 ml-2">
@@ -961,13 +1062,29 @@ const MathTutorDiagnostic: React.FC = () => {
                 className="px-4 py-3 border-b border-slate-200/50"
                 style={{ flex: 'none' }}
               >
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center gap-3">
               <h2 className="text-base font-semibold text-slate-800">
                 AI 대화
               </h2>
-              <button onClick={clearChat} className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200">
-                초기화
-              </button>
+              <div className="flex items-center gap-2">
+                {llmConfigs.length > 0 && (
+                  <select
+                    value={activeConfigId || ''}
+                    onChange={(e) => handleConfigChange(e.target.value)}
+                    className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200 bg-white min-w-[180px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    style={{ maxWidth: '200px' }}
+                  >
+                    {llmConfigs.map((config) => (
+                      <option key={config.id} value={config.id}>
+                        {config.name} {config.isActive ? '(활성)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <button onClick={clearChat} className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200">
+                  초기화
+                </button>
+              </div>
               </div>
               </div>
 
@@ -1077,7 +1194,7 @@ const MathTutorDiagnostic: React.FC = () => {
               />
               <button
                 onClick={handleSendMessage}
-                disabled={!currentInput.trim() || isLoading || !apiKey}
+                disabled={!currentInput.trim() || isLoading}
                 className="px-5 py-3 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-500 disabled:cursor-not-allowed text-sm sm:text-base font-medium transition-all duration-200"
                 aria-label="메시지 전송"
               >

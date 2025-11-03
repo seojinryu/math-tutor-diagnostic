@@ -3,14 +3,11 @@ import { ReactNode, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Home,
   BookOpen,
   FileText,
-  Settings,
   Search,
   Menu,
-  X,
-  Brain
+  X
 } from 'lucide-react';
 
 interface AdminLayoutProps {
@@ -24,28 +21,16 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
 
   const navigation = [
     {
-      name: '대시보드',
-      href: '/admin',
-      icon: Home,
-      current: pathname === '/admin'
-    },
-    {
-      name: '문제 관리',
+      name: '문제',
       href: '/admin/problems',
       icon: BookOpen,
       current: pathname === '/admin/problems'
     },
     {
-      name: '프롬프트 관리',
+      name: 'AI 연동',
       href: '/admin/prompt',
       icon: FileText,
       current: pathname === '/admin/prompt'
-    },
-    {
-      name: '설정',
-      href: '/admin/settings',
-      icon: Settings,
-      current: pathname === '/admin/settings'
     }
   ];
 
@@ -69,8 +54,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
       >
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center space-x-2">
-            <Brain className="w-8 h-8 text-blue-600" />
-            <h1 className="text-xl font-bold text-gray-900">수학 AI 어드민</h1>
+            <h1 className="text-xl font-bold text-gray-900">Admin</h1>
           </div>
           <button
             onClick={() => setIsSidebarOpen(false)}
@@ -137,7 +121,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  placeholder="문제, 프롬프트, 설정 검색..."
+                  placeholder="문제, 프롬프트 검색..."
                 />
               </div>
             </div>
