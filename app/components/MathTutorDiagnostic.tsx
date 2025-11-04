@@ -208,10 +208,44 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
   if (!isEnum(d.concept_knowledge, ['low', 'medium', 'high'] as const)) throw new Error('concept_knowledge 값 오류');
   if (!isEnum(d.error_pattern, ['none', 'calculation_error', 'logical_error', 'concept_confusion', 'approach_error'] as const)) throw new Error('error_pattern 값 오류');
   if (!isEnum(d.confidence_level, ['low', 'medium', 'high'] as const)) throw new Error('confidence_level 값 오류');
+  
+  // knowledge_diagnosis 검증
+  const kd = o.knowledge_diagnosis as Record<string, unknown> | undefined;
+  if (kd && typeof kd === 'object') {
+    if (Array.isArray(kd.elements)) {
+      for (const el of kd.elements) {
+        if (typeof el !== 'object' || !el) continue;
+        const e = el as Record<string, unknown>;
+        if (typeof e.ke_id !== 'string') throw new Error('knowledge_diagnosis.elements[].ke_id는 문자열이어야 합니다.');
+        if (!isEnum(e.mastery, ['low', 'medium', 'high'] as const)) throw new Error('knowledge_diagnosis.elements[].mastery 값 오류');
+        if (typeof e.evidence !== 'string') throw new Error('knowledge_diagnosis.elements[].evidence는 문자열이어야 합니다.');
+        if (typeof e.cognitive_level !== 'string') throw new Error('knowledge_diagnosis.elements[].cognitive_level는 문자열이어야 합니다.');
+        if (typeof e.next_action !== 'string') throw new Error('knowledge_diagnosis.elements[].next_action는 문자열이어야 합니다.');
+      }
+    }
+    if (typeof kd.overall_mastery_score !== 'number') throw new Error('knowledge_diagnosis.overall_mastery_score는 숫자여야 합니다.');
+    if (!isEnum(kd.uncertainty, ['low', 'medium', 'high'] as const)) throw new Error('knowledge_diagnosis.uncertainty 값 오류');
+  }
+  
   if (!isEnum(o.recommended_stage, ['1', '2', '3', '4'] as const)) throw new Error('recommended_stage 값 오류');
   if (typeof o.stage_reason !== 'string') throw new Error('stage_reason은 문자열이어야 합니다.');
   if (typeof o.next_question !== 'string') throw new Error('next_question은 문자열이어야 합니다.');
-  if (typeof o.feedback_completed !== 'boolean') throw new Error('feedback_completed는 boolean이어야 합니다.');
+  
+  // feedback_completed는 boolean 또는 string ("true"/"false") 모두 허용
+  if (typeof o.feedback_completed !== 'boolean' && typeof o.feedback_completed !== 'string') {
+    throw new Error('feedback_completed는 boolean 또는 string이어야 합니다.');
+  }
+  
+  // micro_assessments는 선택사항이므로 있으면 검증
+  if (o.micro_assessments !== undefined) {
+    if (!Array.isArray(o.micro_assessments)) throw new Error('micro_assessments는 배열이어야 합니다.');
+    for (const ma of o.micro_assessments) {
+      if (typeof ma !== 'object' || !ma) continue;
+      const m = ma as Record<string, unknown>;
+      if (typeof m.ke_id !== 'string') throw new Error('micro_assessments[].ke_id는 문자열이어야 합니다.');
+      if (typeof m.prompt !== 'string') throw new Error('micro_assessments[].prompt는 문자열이어야 합니다.');
+    }
+  }
 }
 
 /**********************
@@ -322,6 +356,13 @@ interface GeminiArgs {
   explanationText?: string;
   userMessage: string;
   context: string;
+  knowledgeElements?: Array<{
+    id: string;
+    name: string;
+    category: 'concept' | 'principle' | 'procedure' | 'integration';
+    cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
+    weight?: number;
+  }>;
   signal?: AbortSignal;
 }
 
@@ -349,7 +390,7 @@ interface GeminiResponse { promptFeedback?: { blockReason?: string }; candidates
 /**********************
  * Gemini API Call
  **********************/
-async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, thinkingBudget, responseSchema, responseMimeType, problem, problemImage, explanationImage, explanationText, userMessage, context, signal }: GeminiArgs): Promise<DiagnosticData> {
+async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, thinkingBudget, responseSchema, responseMimeType, problem, problemImage, explanationImage, explanationText, userMessage, context, knowledgeElements, signal }: GeminiArgs): Promise<DiagnosticData> {
 
   // 이미지가 있는 경우와 없는 경우를 구분하여 처리
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
@@ -394,6 +435,29 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
   // 해설 텍스트가 있는 경우 추가
   if (explanationText) {
     textContent += `- 해설 (텍스트): ${explanationText}\n`;
+  }
+
+  // 지식요소 목록이 있는 경우 추가
+  if (knowledgeElements && knowledgeElements.length > 0) {
+    textContent += `\n지식요소목록:\n[\n`;
+    knowledgeElements.forEach((ke) => {
+      const categoryMap = {
+        concept: '개념',
+        principle: '원리',
+        procedure: '절차',
+        integration: '통합'
+      };
+      const cognitiveLevelMap = {
+        remember: '기억',
+        understand: '이해',
+        apply: '적용',
+        analyze: '분석',
+        synthesize: '종합',
+        evaluate: '평가'
+      };
+      textContent += `  {"id":"${ke.id}","이름":"${ke.name}","구분":"${categoryMap[ke.category]}","인지수준":"${cognitiveLevelMap[ke.cognitiveLevel]}","가중치":${ke.weight ?? 0.5}},\n`;
+    });
+    textContent += `]\n`;
   }
 
   textContent += `- 학생 응답: ${userMessage}\n`;
@@ -739,6 +803,13 @@ const MathTutorDiagnostic: React.FC = () => {
       explanationText: currentProblem.explanationText,
       userMessage,
       context: contextText,
+      knowledgeElements: currentProblem.knowledgeElements?.map(ke => ({
+        id: ke.id,
+        name: ke.name,
+        category: ke.category,
+        cognitiveLevel: ke.cognitiveLevel,
+        weight: ke.weight
+      })),
       signal: abortRef.current?.signal,
     };
     return callGemini(args);
@@ -1077,6 +1148,59 @@ const MathTutorDiagnostic: React.FC = () => {
                       <div className="text-black">자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
                     </div>
                   </div>
+
+                  {/* 지식요소 진단 결과 */}
+                  {currentDiagnostic.knowledge_diagnosis && currentDiagnostic.knowledge_diagnosis.elements && currentDiagnostic.knowledge_diagnosis.elements.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-sm font-medium text-black mb-2">지식 요소 숙련도</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {currentDiagnostic.knowledge_diagnosis.elements.map((element, idx) => {
+                          const masteryColor = element.mastery === 'high' 
+                            ? 'bg-green-100 text-green-800 border-green-300' 
+                            : element.mastery === 'medium'
+                            ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                            : 'bg-red-100 text-red-800 border-red-300';
+                          const masteryIcon = element.mastery === 'high' ? '✅' : element.mastery === 'medium' ? '⚠️' : '⚠️';
+                          
+                          // 지식요소 이름 찾기
+                          const keName = currentProblem?.knowledgeElements?.find(ke => ke.id === element.ke_id)?.name || element.ke_id;
+                          
+                          return (
+                            <div
+                              key={idx}
+                              className={`px-2 py-1 rounded-lg text-xs font-medium border ${masteryColor} cursor-pointer hover:opacity-80 transition-opacity`}
+                              title={`${keName}: ${element.evidence}`}
+                            >
+                              {masteryIcon} {keName}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {currentDiagnostic.knowledge_diagnosis.overall_mastery_score !== undefined && (
+                        <div className="mt-2 text-xs text-gray-600">
+                          전체 숙련도: <span className="font-medium">{currentDiagnostic.knowledge_diagnosis.overall_mastery_score}점</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 마이크로 평가 제안 */}
+                  {currentDiagnostic.micro_assessments && currentDiagnostic.micro_assessments.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-sm font-medium text-black mb-2">추가 확인 문제</h4>
+                      <div className="space-y-2">
+                        {currentDiagnostic.micro_assessments.map((assessment, idx) => {
+                          const keName = currentProblem?.knowledgeElements?.find(ke => ke.id === assessment.ke_id)?.name || assessment.ke_id;
+                          return (
+                            <div key={idx} className="bg-blue-50 border border-blue-200 rounded p-2 text-xs">
+                              <div className="font-medium text-blue-900 mb-1">{keName}</div>
+                              <div className="text-blue-700">{assessment.prompt}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               ) : (
