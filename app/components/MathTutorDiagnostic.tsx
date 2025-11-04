@@ -491,65 +491,122 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
     });
   }
 
-  // 서버 사이드 API 엔드포인트 호출
+  // 서버 사이드 API 엔드포인트 호출 (재시도 로직 포함)
   const controller = signal ? new AbortController() : null;
   if (signal && controller) {
     signal.addEventListener('abort', () => controller.abort());
   }
 
-  const res = await fetch('/api/gemini', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    signal: controller?.signal || signal,
-    body: JSON.stringify({
-      model,
-      systemPrompt,
-      userParts,
-      generationConfig
-    })
-  });
+  const maxRetries = 3;
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const res = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        signal: controller?.signal || signal,
+        body: JSON.stringify({
+          model,
+          systemPrompt,
+          userParts,
+          generationConfig
+        })
+      });
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({ error: '알 수 없는 오류' }));
-    throw new Error(errorData.error || `서버 오류: ${res.status} ${res.statusText}`);
-  }
-
-  const data = (await res.json()) as GeminiResponse & {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string, inlineData?: { data: string } }> } }>;
-  };
-
-  const blocked = data?.promptFeedback?.blockReason;
-  if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
-
-  const parts = data?.candidates?.[0]?.content?.parts ?? [];
-  let text = "";
-  for (const p of parts) {
-    if (typeof p?.text === "string" && p.text.trim()) { text = p.text.trim(); break; }
-  }
-  if (!text) {
-    for (const p of parts) {
-      const b64 = p?.inlineData?.data;
-      if (b64) {
-        try {
-          const decoded = typeof globalThis.atob === "function" ? globalThis.atob(b64) : "";
-          if (decoded.trim()) { text = decoded.trim(); break; }
-        } catch {}
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: '알 수 없는 오류' }));
+        const errorMessage = errorData.error || `서버 오류: ${res.status} ${res.statusText}`;
+        
+        // 429 에러인 경우 재시도 (exponential backoff)
+        if (res.status === 429 && attempt < maxRetries - 1) {
+          const retryAfter = res.headers.get('Retry-After');
+          const waitTime = retryAfter 
+            ? parseInt(retryAfter, 10) * 1000 
+            : Math.min(Math.pow(2, attempt) * 2000, 10000); // 최대 10초
+          console.warn(`Rate limit 도달. ${waitTime / 1000}초 후 재시도... (${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue;
+        }
+        
+        // 429 에러이고 재시도 모두 실패한 경우
+        if (res.status === 429) {
+          throw new Error('API 요청 제한에 도달했습니다. 잠시(30초~1분) 기다린 후 다시 시도해주세요.');
+        }
+        
+        throw new Error(errorMessage);
       }
+
+      type CandidatePart = { text?: string; inlineData?: { data: string } };
+      type CandidateContent = { parts?: CandidatePart[] };
+      type Candidate = { content?: CandidateContent };
+      const data = (await res.json()) as GeminiResponse & {
+        candidates?: Candidate[];
+      };
+
+      const blocked = data?.promptFeedback?.blockReason;
+      if (blocked) throw new Error(`안전성 정책으로 차단됨: ${blocked}`);
+
+      const parts = data?.candidates?.[0]?.content?.parts ?? [];
+      let text = "";
+      for (const p of parts) {
+        if (typeof p?.text === "string" && p.text.trim()) { text = p.text.trim(); break; }
+      }
+      if (!text) {
+        for (const p of parts) {
+          const b64 = p?.inlineData?.data;
+          if (b64) {
+            try {
+              const decoded = typeof globalThis.atob === "function" ? globalThis.atob(b64) : "";
+              if (decoded.trim()) { text = decoded.trim(); break; }
+            } catch {}
+          }
+        }
+      }
+
+      if (!text) {
+        const finish = data?.candidates?.[0]?.finishReason;
+        const hint = finish ? ` (finishReason: ${finish})` : "";
+        throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
+      }
+
+      const parsed = parseJsonLoose(text);
+      validateDiagnostic(parsed);
+      return parsed as DiagnosticData;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // AbortSignal인 경우 재시도하지 않음
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error;
+      }
+      
+      // 마지막 시도가 아니면 계속 재시도
+      if (attempt < maxRetries - 1) {
+        // 429 에러가 아닌 경우에만 짧은 대기
+        if (!(lastError.message.includes('429') || lastError.message.includes('Too Many Requests'))) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+        }
+        continue;
+      }
+      
+      // 모든 재시도 실패 - 에러 메시지 개선
+      if (lastError.message.includes('429') || lastError.message.includes('Too Many Requests')) {
+        throw new Error('API 요청 제한에 도달했습니다. 잠시(30초~1분) 기다린 후 다시 시도해주세요.');
+      }
+      
+      throw lastError;
     }
   }
-
-  if (!text) {
-    const finish = data?.candidates?.[0]?.finishReason;
-    const hint = finish ? ` (finishReason: ${finish})` : "";
-    throw new Error(`Gemini 응답에서 JSON 본문을 찾지 못했습니다.${hint}`);
-  }
-
-  const parsed = parseJsonLoose(text);
-  validateDiagnostic(parsed);
-  return parsed as DiagnosticData;
+  
+  throw lastError || new Error('알 수 없는 오류가 발생했습니다.');
 }
+
+/**********************
+ * Component
+ **********************/
 
 /**********************
  * Component
