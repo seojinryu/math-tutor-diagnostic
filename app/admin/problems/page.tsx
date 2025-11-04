@@ -14,11 +14,26 @@ import {
 
 interface KnowledgeElement {
   id: string;
+  name: string; // 이름
   category: 'concept' | 'principle' | 'procedure' | 'integration';
-  element: string;
   description: string;
-  source: string;
+  source: string; // 성취기준코드
   cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
+  weight?: number; // 가중치 (0~1)
+  prereqIds?: string[]; // 선행요소 ID 목록
+  exampleQuestions?: string[]; // 예시문항/미니퀴즈
+}
+
+interface ProblemKEMap {
+  problemId: string;
+  keId: string;
+  weight: number; // 가중치 (0~1)
+  requiredLevel: number; // 숙련 필요 레벨 (1~4)
+  evidenceRules: {
+    correctAnswer?: string[]; // 정답 패턴 키워드
+    intermediateSteps?: string[]; // 중간식 패턴 키워드
+    errorPatterns?: string[]; // 오류패턴 키워드
+  };
 }
 
 interface Problem {
@@ -32,6 +47,7 @@ interface Problem {
   unit?: string;
   notes?: string;
   knowledgeElements?: KnowledgeElement[];
+  keMaps?: ProblemKEMap[]; // 문제-지식요소 매핑
   createdAt: string;
   updatedAt: string;
 }
@@ -271,10 +287,13 @@ const ProblemsManagement = () => {
   const [isAddingKnowledgeElement, setIsAddingKnowledgeElement] = useState(false);
   const [newKnowledgeElement, setNewKnowledgeElement] = useState<Partial<KnowledgeElement>>({
     category: 'concept',
-    element: '',
+    name: '',
     description: '',
     source: '',
-    cognitiveLevel: 'remember'
+    cognitiveLevel: 'remember',
+    weight: 0.5,
+    prereqIds: [],
+    exampleQuestions: []
   });
 
   const nowTime = () =>
@@ -474,10 +493,13 @@ const ProblemsManagement = () => {
     setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: 'concept',
-      element: '',
+      name: '',
       description: '',
       source: '',
-      cognitiveLevel: 'remember'
+      cognitiveLevel: 'remember',
+      weight: 0.5,
+      prereqIds: [],
+      exampleQuestions: []
     });
     setInputMode('text');
     setExplanationInputMode('text');
@@ -520,8 +542,8 @@ const ProblemsManagement = () => {
 
   // 지식 요소 추가/수정
   const saveKnowledgeElement = () => {
-    if (!newKnowledgeElement.element?.trim() || !newKnowledgeElement.description?.trim()) {
-      alert('지식요소와 내용 설명을 입력해주세요.');
+    if (!newKnowledgeElement.name?.trim() || !newKnowledgeElement.description?.trim()) {
+      alert('지식요소 이름과 내용 설명을 입력해주세요.');
       return;
     }
 
@@ -532,11 +554,14 @@ const ProblemsManagement = () => {
           ? {
               ...newKnowledgeElement,
               id: editingKnowledgeElement.id,
-              element: newKnowledgeElement.element!.trim(),
+              name: newKnowledgeElement.name!.trim(),
               description: newKnowledgeElement.description!.trim(),
               source: newKnowledgeElement.source?.trim() || '',
               category: newKnowledgeElement.category!,
-              cognitiveLevel: newKnowledgeElement.cognitiveLevel!
+              cognitiveLevel: newKnowledgeElement.cognitiveLevel!,
+              weight: newKnowledgeElement.weight ?? 0.5,
+              prereqIds: newKnowledgeElement.prereqIds ?? [],
+              exampleQuestions: newKnowledgeElement.exampleQuestions ?? []
             } as KnowledgeElement
           : ke
       ));
@@ -546,10 +571,13 @@ const ProblemsManagement = () => {
       const newElement: KnowledgeElement = {
         id: uid(),
         category: newKnowledgeElement.category!,
-        element: newKnowledgeElement.element.trim(),
-        description: newKnowledgeElement.description.trim(),
+        name: newKnowledgeElement.name!.trim(),
+        description: newKnowledgeElement.description!.trim(),
         source: newKnowledgeElement.source?.trim() || '',
-        cognitiveLevel: newKnowledgeElement.cognitiveLevel!
+        cognitiveLevel: newKnowledgeElement.cognitiveLevel!,
+        weight: newKnowledgeElement.weight ?? 0.5,
+        prereqIds: newKnowledgeElement.prereqIds ?? [],
+        exampleQuestions: newKnowledgeElement.exampleQuestions ?? []
       };
       setKnowledgeElements([...knowledgeElements, newElement]);
     }
@@ -557,10 +585,13 @@ const ProblemsManagement = () => {
     // 폼 초기화
     setNewKnowledgeElement({
       category: 'concept',
-      element: '',
+      name: '',
       description: '',
       source: '',
-      cognitiveLevel: 'remember'
+      cognitiveLevel: 'remember',
+      weight: 0.5,
+      prereqIds: [],
+      exampleQuestions: []
     });
     setIsAddingKnowledgeElement(false);
   };
@@ -571,10 +602,13 @@ const ProblemsManagement = () => {
     setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: element.category,
-      element: element.element,
+      name: element.name,
       description: element.description,
       source: element.source,
-      cognitiveLevel: element.cognitiveLevel
+      cognitiveLevel: element.cognitiveLevel,
+      weight: element.weight ?? 0.5,
+      prereqIds: element.prereqIds ?? [],
+      exampleQuestions: element.exampleQuestions ?? []
     });
   };
 
@@ -591,10 +625,13 @@ const ProblemsManagement = () => {
     setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: 'concept',
-      element: '',
+      name: '',
       description: '',
       source: '',
-      cognitiveLevel: 'remember'
+      cognitiveLevel: 'remember',
+      weight: 0.5,
+      prereqIds: [],
+      exampleQuestions: []
     });
   };
 
@@ -949,10 +986,13 @@ const ProblemsManagement = () => {
                         setEditingKnowledgeElement(null);
                         setNewKnowledgeElement({
                           category: 'concept',
-                          element: '',
+                          name: '',
                           description: '',
                           source: '',
-                          cognitiveLevel: 'remember'
+                          cognitiveLevel: 'remember',
+                          weight: 0.5,
+                          prereqIds: [],
+                          exampleQuestions: []
                         });
                       }}
                       className="text-xs text-blue-600 hover:text-blue-800 font-medium"
@@ -985,7 +1025,7 @@ const ProblemsManagement = () => {
                                  ke.category === 'principle' ? '원리' : 
                                  ke.category === 'procedure' ? '절차' : '통합'}
                               </td>
-                              <td className="px-3 py-2 text-xs text-gray-900">{ke.element}</td>
+                              <td className="px-3 py-2 text-xs text-gray-900">{ke.name}</td>
                               <td className="px-3 py-2 text-xs text-gray-600 max-w-xs truncate">{ke.description}</td>
                               <td className="px-3 py-2 text-xs text-gray-600">{ke.source || '-'}</td>
                               <td className="px-3 py-2 text-xs text-gray-600">
@@ -1070,11 +1110,11 @@ const ProblemsManagement = () => {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">지식요소 *</label>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">지식요소 이름 *</label>
                       <input
                         type="text"
-                        value={newKnowledgeElement.element || ''}
-                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, element: e.target.value }))}
+                        value={newKnowledgeElement.name || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, name: e.target.value }))}
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         placeholder="예: 삼각비의 정의"
                       />
@@ -1087,6 +1127,41 @@ const ProblemsManagement = () => {
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         rows={2}
                         placeholder="예: 직각삼각형에서 sin, cos, tan의 비 정의"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">가중치 (0~1)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="1"
+                          value={newKnowledgeElement.weight ?? 0.5}
+                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, weight: parseFloat(e.target.value) || 0.5 }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">선행요소 ID (쉼표로 구분)</label>
+                        <input
+                          type="text"
+                          value={newKnowledgeElement.prereqIds?.join(', ') || ''}
+                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, prereqIds: e.target.value.split(',').map(s => s.trim()).filter(s => s) }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="예: KE1, KE2"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">예시문항/미니퀴즈 (한 줄에 하나씩)</label>
+                      <textarea
+                        value={newKnowledgeElement.exampleQuestions?.join('\n') || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, exampleQuestions: e.target.value.split('\n').filter(s => s.trim()) }))}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        rows={3}
+                        placeholder="예: sin 30°의 값을 구하세요.&#10;cos 45°의 값을 구하세요."
                       />
                     </div>
                     <div className="flex justify-end gap-2">
@@ -1237,7 +1312,7 @@ const ProblemsManagement = () => {
                                  ke.category === 'principle' ? '원리' : 
                                  ke.category === 'procedure' ? '절차' : '통합'}
                               </td>
-                              <td className="px-3 py-2 text-xs text-gray-900 font-medium">{ke.element}</td>
+                              <td className="px-3 py-2 text-xs text-gray-900 font-medium">{ke.name}</td>
                               <td className="px-3 py-2 text-xs text-gray-600">{ke.description}</td>
                               <td className="px-3 py-2 text-xs text-gray-600">{ke.source || '-'}</td>
                               <td className="px-3 py-2 text-xs text-gray-600">

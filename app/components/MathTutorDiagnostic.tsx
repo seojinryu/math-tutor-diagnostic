@@ -21,10 +21,13 @@ export interface Problem {
   knowledgeElements?: Array<{
     id: string;
     category: 'concept' | 'principle' | 'procedure' | 'integration';
-    element: string;
+    name: string;
     description: string;
     source: string;
     cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
+    weight?: number;
+    prereqIds?: string[];
+    exampleQuestions?: string[];
   }>;
   difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
@@ -38,10 +41,25 @@ export interface DiagnosticData {
     error_pattern: 'none' | 'calculation_error' | 'logical_error' | 'concept_confusion' | 'approach_error';
     confidence_level: 'low' | 'medium' | 'high';
   };
+  knowledge_diagnosis: {
+    elements: Array<{
+      ke_id: string;
+      mastery: 'low' | 'medium' | 'high';
+      evidence: string;
+      cognitive_level: string;
+      next_action: string;
+    }>;
+    overall_mastery_score: number;
+    uncertainty: 'low' | 'medium' | 'high';
+  };
   recommended_stage: '1' | '2' | '3' | '4';
   stage_reason: string;
   next_question: string;
-  feedback_completed: boolean;
+  micro_assessments?: Array<{
+    ke_id: string;
+    prompt: string;
+  }>;
+  feedback_completed: boolean | string;
 }
 
 export interface Message {
