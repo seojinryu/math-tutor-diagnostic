@@ -254,6 +254,7 @@ const ProblemsManagement = () => {
   // 학년/단원 목록 관리
   const [grades, setGrades] = useState<string[]>([]);
   const [units, setUnits] = useState<string[]>([]);
+  const [achievementStandards, setAchievementStandards] = useState<string[]>([]);
 
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
@@ -267,6 +268,7 @@ const ProblemsManagement = () => {
   // 지식 요소 관리
   const [knowledgeElements, setKnowledgeElements] = useState<KnowledgeElement[]>([]);
   const [editingKnowledgeElement, setEditingKnowledgeElement] = useState<KnowledgeElement | null>(null);
+  const [isAddingKnowledgeElement, setIsAddingKnowledgeElement] = useState(false);
   const [newKnowledgeElement, setNewKnowledgeElement] = useState<Partial<KnowledgeElement>>({
     category: 'concept',
     element: '',
@@ -299,6 +301,7 @@ const ProblemsManagement = () => {
     // 학년/단원 목록 로드
     const storedGrades = localStorage.getItem('math_tutor_grades');
     const storedUnits = localStorage.getItem('math_tutor_units');
+    const storedAchievementStandards = localStorage.getItem('math_tutor_achievement_standards');
     if (storedGrades) {
       try {
         setGrades(JSON.parse(storedGrades));
@@ -311,6 +314,13 @@ const ProblemsManagement = () => {
         setUnits(JSON.parse(storedUnits));
       } catch (e) {
         console.error('Failed to load units:', e);
+      }
+    }
+    if (storedAchievementStandards) {
+      try {
+        setAchievementStandards(JSON.parse(storedAchievementStandards));
+      } catch (e) {
+        console.error('Failed to load achievement standards:', e);
       }
     }
   }, []);
@@ -333,6 +343,13 @@ const ProblemsManagement = () => {
     const updatedUnits = [...units, value].sort();
     setUnits(updatedUnits);
     localStorage.setItem('math_tutor_units', JSON.stringify(updatedUnits));
+  };
+
+  // 성취기준 추가
+  const handleAddAchievementStandard = (value: string) => {
+    const updatedStandards = [...achievementStandards, value].sort();
+    setAchievementStandards(updatedStandards);
+    localStorage.setItem('math_tutor_achievement_standards', JSON.stringify(updatedStandards));
   };
 
   // 필터링된 문제
@@ -454,6 +471,7 @@ const ProblemsManagement = () => {
     });
     setKnowledgeElements([]);
     setEditingKnowledgeElement(null);
+    setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: 'concept',
       element: '',
@@ -485,6 +503,7 @@ const ProblemsManagement = () => {
       notes: problem.notes || ''
     });
     setKnowledgeElements(problem.knowledgeElements || []);
+    setIsAddingKnowledgeElement(false);
     if (problem.imageUrl) {
       setInputMode('image');
       setImagePreview(problem.imageUrl);
@@ -543,11 +562,13 @@ const ProblemsManagement = () => {
       source: '',
       cognitiveLevel: 'remember'
     });
+    setIsAddingKnowledgeElement(false);
   };
 
   // 지식 요소 편집 시작
   const startEditKnowledgeElement = (element: KnowledgeElement) => {
     setEditingKnowledgeElement(element);
+    setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: element.category,
       element: element.element,
@@ -567,6 +588,7 @@ const ProblemsManagement = () => {
   // 지식 요소 편집 취소
   const cancelEditKnowledgeElement = () => {
     setEditingKnowledgeElement(null);
+    setIsAddingKnowledgeElement(false);
     setNewKnowledgeElement({
       category: 'concept',
       element: '',
@@ -724,7 +746,7 @@ const ProblemsManagement = () => {
       {/* 추가/편집 모달 */}
       {(isAddModalOpen || editingProblem) && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold text-gray-900">
@@ -919,10 +941,11 @@ const ProblemsManagement = () => {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <label className="block text-sm font-medium text-gray-700">관련 지식 요소</label>
-                  {knowledgeElements.length > 0 && !editingKnowledgeElement && (
+                  {!isAddingKnowledgeElement && !editingKnowledgeElement && (
                     <button
                       type="button"
                       onClick={() => {
+                        setIsAddingKnowledgeElement(true);
                         setEditingKnowledgeElement(null);
                         setNewKnowledgeElement({
                           category: 'concept',
@@ -1001,8 +1024,21 @@ const ProblemsManagement = () => {
                 )}
 
                 {/* 지식 요소 추가/편집 폼 */}
-                {(knowledgeElements.length === 0 || editingKnowledgeElement) && (
+                {(isAddingKnowledgeElement || editingKnowledgeElement) && (
                   <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">출처(성취기준)</label>
+                      <SearchableSelect
+                        placeholder="선택하세요"
+                        options={achievementStandards}
+                        value={newKnowledgeElement.source || ''}
+                        onChange={(value) => {
+                          setNewKnowledgeElement(prev => ({ ...prev, source: value }));
+                        }}
+                        onAddNew={handleAddAchievementStandard}
+                        emptyText="성취기준 없음"
+                      />
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-gray-700 mb-1">구분 *</label>
@@ -1051,16 +1087,6 @@ const ProblemsManagement = () => {
                         className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                         rows={2}
                         placeholder="예: 직각삼각형에서 sin, cos, tan의 비 정의"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">출처(성취기준)</label>
-                      <input
-                        type="text"
-                        value={newKnowledgeElement.source || ''}
-                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, source: e.target.value }))}
-                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                        placeholder="예: [9수03-16]"
                       />
                     </div>
                     <div className="flex justify-end gap-2">
