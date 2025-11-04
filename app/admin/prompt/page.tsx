@@ -379,12 +379,12 @@ const AIManagement = () => {
     }
 
     // 기본 설정이 없으면 생성
-    if (configs.length === 0) {
+    if (!storedConfigs || (storedConfigs && JSON.parse(storedConfigs).length === 0)) {
       const defaultConfig: LLMConfig = {
         id: uid(),
         name: '기본 LLM 설정',
-        description: 'gemini api 호출',
-        version: 'v1.0.0',
+        description: '지식요소 진단 통합형 프롬프트',
+        version: 'v2.0.0',
         systemPrompt: SYSTEM_PROMPT_BASE,
         userPrompt: '',
         inputSchema: DEFAULT_INPUT_SCHEMA,
