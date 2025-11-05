@@ -530,8 +530,8 @@ const AIManagement = () => {
         version: 'v1.0.0',
         systemPrompt: defaultSystemPrompt,
         userPrompt: '',
-        inputSchema: defaultInputSchema as any,
-        outputSchema: defaultOutputSchema as any,
+        inputSchema: defaultInputSchema as unknown as typeof DEFAULT_INPUT_SCHEMA,
+        outputSchema: defaultOutputSchema as unknown as typeof DEFAULT_RESPONSE_SCHEMA,
         responseMimeType: 'application/json',
         provider: 'gemini',
         model: 'gemini-2.5-pro',
@@ -907,13 +907,13 @@ const AIManagement = () => {
             새 설정 추가
           </button>
           {!isAdding && selectedConfig && !isEditing && (
-            <button
+          <button
               onClick={startEditing}
               className="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
-            >
+          >
               <Edit3 className="w-4 h-4 mr-2" />
               편집
-            </button>
+          </button>
           )}
         </div>
       </div>
@@ -955,8 +955,8 @@ const AIManagement = () => {
                           <p className="text-xs text-gray-600 mt-1 line-clamp-1">{config.description}</p>
                         )}
                         <p className="text-xs text-gray-500 mt-1">{config.version}</p>
-                      </div>
-                    </div>
+          </div>
+        </div>
                     <div className="flex items-center gap-2 mt-2">
                       {/* ✅ 활성화/비활성화 토글 체크박스 */}
                       <label className="flex items-center gap-1 cursor-pointer">
@@ -999,7 +999,7 @@ const AIManagement = () => {
           {selectedConfig || isAdding ? (
             <>
               {/* LLM 기본정보 */}
-              <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
                 <div className="p-4 border-b border-gray-200 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Info className="w-5 h-5 text-gray-500" />
@@ -1077,8 +1077,8 @@ const AIManagement = () => {
                       <span className="ml-2 font-medium">{selectedConfig.updatedAt}</span>
                     </div>
                   </div>
-                )}
-              </div>
+                  )}
+                </div>
 
               {/* 스키마 정보 */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200">
@@ -1106,18 +1106,18 @@ const AIManagement = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
+                  <button
                           onClick={(e) => {
                             e.stopPropagation();
                             copySchema(inputSchema, 'input');
                           }}
                           className="p-1 text-gray-500 hover:text-gray-700"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
                         <button className="p-1 text-gray-500 hover:text-gray-700">
                           <Maximize2 className="w-4 h-4" />
-                        </button>
+                  </button>
                       </div>
                     </div>
                     {showInputSchema && (
@@ -1145,7 +1145,7 @@ const AIManagement = () => {
                                     : 'border-gray-200 hover:border-gray-300'
                                 } ${!isAdding && !isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
-                                <input
+                    <input
                                   type="checkbox"
                                   checked={selectedInputFields.has(field.key)}
                                   onChange={(e) => {
@@ -1173,7 +1173,7 @@ const AIManagement = () => {
                                   <div className="text-sm font-medium text-gray-900">{field.label}</div>
                                   <div className="text-xs text-gray-500">{field.description}</div>
                                 </div>
-                              </label>
+                  </label>
                             ))}
                           </div>
                         </div>
@@ -1233,7 +1233,7 @@ const AIManagement = () => {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
+                  <button
                           onClick={(e) => {
                             e.stopPropagation();
                             copySchema(outputSchema, 'output');
@@ -1244,7 +1244,7 @@ const AIManagement = () => {
                         </button>
                         <button className="p-1 text-gray-500 hover:text-gray-700">
                           <Maximize2 className="w-4 h-4" />
-                        </button>
+                  </button>
                       </div>
                     </div>
                     {showOutputSchema && (
@@ -1275,9 +1275,9 @@ const AIManagement = () => {
                         />
                       </div>
                     )}
-                  </div>
                 </div>
               </div>
+            </div>
 
               {/* 프롬프트 정보 */}
               <div className="bg-white rounded-lg shadow-sm border border-gray-200">
@@ -1285,19 +1285,19 @@ const AIManagement = () => {
                   <h2 className="text-lg font-semibold text-gray-900">프롬프트 정보</h2>
                 </div>
                 <div className="p-6 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      시스템 프롬프트
-                    </label>
-                    <textarea
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    시스템 프롬프트
+                  </label>
+                  <textarea
                       value={systemPrompt}
                       onChange={(e) => setSystemPrompt(e.target.value)}
                       disabled={!isAdding && !isEditing}
                       className={`w-full h-64 p-4 border border-gray-300 rounded-lg font-mono text-sm resize-none ${
                         !isAdding && !isEditing ? 'bg-gray-50 text-gray-600' : 'bg-white'
                       }`}
-                    />
-                  </div>
+                  />
+                </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       유저 프롬프트 (선택사항)
@@ -1413,34 +1413,34 @@ const AIManagement = () => {
                     </div>
                   </div>
                 </div>
-              </div>
+            </div>
 
-              {/* 저장 버튼 */}
+            {/* 저장 버튼 */}
               {(isAdding || isEditing) && (
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex justify-end items-center space-x-3">
-                  <button
+                <button
                     onClick={cancelEditing}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                  >
-                    취소
-                  </button>
-                  <button
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  취소
+                </button>
+                <button
                     onClick={saveConfig}
                     disabled={saveStatus === 'saving' || !name.trim()}
-                    className={`inline-flex items-center px-4 py-2 rounded-lg font-medium ${
+                  className={`inline-flex items-center px-4 py-2 rounded-lg font-medium ${
                       saveStatus === 'saving' || !name.trim()
-                        ? 'bg-gray-400 text-white cursor-not-allowed'
-                        : saveStatus === 'saved'
-                        ? 'bg-green-600 text-white'
-                        : 'bg-blue-600 text-white hover:bg-blue-700'
-                    }`}
-                  >
-                    <Save className="w-4 h-4 mr-2" />
-                    {saveStatus === 'saving' ? '저장 중...' :
-                     saveStatus === 'saved' ? '저장됨' : '저장'}
-                  </button>
-                </div>
-              )}
+                      ? 'bg-gray-400 text-white cursor-not-allowed'
+                      : saveStatus === 'saved'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  }`}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  {saveStatus === 'saving' ? '저장 중...' :
+                   saveStatus === 'saved' ? '저장됨' : '저장'}
+                </button>
+              </div>
+            )}
             </>
           ) : (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
