@@ -472,17 +472,9 @@ const AIManagement = () => {
       const defaultInputSchema = {
         type: "object" as const,
         properties: {
-          problem: {
-            type: "string" as const,
-            description: "문제 텍스트(이미지 문제면 간단 설명)"
-          },
           problemImage: {
             type: "string" as const,
             description: "문제 이미지 URL (Base64)"
-          },
-          explanation: {
-            type: "string" as const,
-            description: "문제의 공식 해설 텍스트"
           },
           explanationImage: {
             type: "string" as const,
@@ -496,6 +488,14 @@ const AIManagement = () => {
             type: "string" as const,
             description: "이전 대화 요약, 학습 스타일/오류 패턴 등",
             default: ""
+          },
+          problem: {
+            type: "string" as const,
+            description: "문제 텍스트(이미지 문제면 간단 설명)"
+          },
+          explanation: {
+            type: "string" as const,
+            description: "문제의 공식 해설 텍스트"
           }
         },
         required: ["userMessage"] as const,

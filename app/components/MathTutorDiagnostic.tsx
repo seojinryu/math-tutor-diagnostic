@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText, ChevronRight, Settings } from 'lucide-react';
+import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText, ChevronRight, Settings, Search } from 'lucide-react';
 import type { LLMConfig } from '../admin/prompt/page';
 import { DEFAULT_RESPONSE_SCHEMA, DEFAULT_INPUT_SCHEMA } from '../admin/prompt/page';
 import { useActiveLLMConfig } from '../hooks/useActiveLLMConfig';
@@ -134,6 +134,205 @@ const nowTime = () =>
   }).format(new Date());
 
 const uid = () => Math.random().toString(36).slice(2);
+
+// SearchableSelect 컴포넌트 (Admin에서 사용하는 것과 동일)
+interface SearchableSelectProps {
+  label?: string;
+  placeholder: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  onAddNew: (value: string) => void;
+  emptyText?: string;
+}
+
+const SearchableSelect: React.FC<SearchableSelectProps> = ({
+  label,
+  placeholder,
+  options,
+  value,
+  onChange,
+  onAddNew,
+  emptyText = '항목 없음'
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isAddingNew, setIsAddingNew] = useState(false);
+  const [newValue, setNewValue] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const filteredOptions = options.filter(option =>
+    option.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const selectedLabel = value || placeholder;
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setIsAddingNew(false);
+        setSearchQuery('');
+        setNewValue('');
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isAddingNew && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isAddingNew]);
+
+  const handleAddNew = () => {
+    if (!newValue.trim()) {
+      return;
+    }
+    if (options.includes(newValue.trim())) {
+      alert('이미 존재하는 항목입니다.');
+      return;
+    }
+    onAddNew(newValue.trim());
+    onChange(newValue.trim());
+    setIsAddingNew(false);
+    setNewValue('');
+    setSearchQuery('');
+    setIsOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2 text-left border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+      >
+        <span className={value ? 'text-gray-900' : 'text-gray-400'}>{selectedLabel}</span>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg">
+          {/* 검색 바 */}
+          <div className="p-2 border-b border-gray-200">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsAddingNew(false);
+                  setNewValue('');
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                placeholder="검색..."
+              />
+            </div>
+          </div>
+
+          {/* 목록 */}
+          <div className="max-h-60 overflow-y-auto">
+            {filteredOptions.length === 0 && !isAddingNew && searchQuery && (
+              <div className="p-3 text-center text-sm text-gray-500">
+                검색 결과가 없습니다
+              </div>
+            )}
+            {filteredOptions.length === 0 && !isAddingNew && !searchQuery && (
+              <div className="p-3 text-center text-sm text-gray-500">
+                {emptyText}
+              </div>
+            )}
+            {filteredOptions.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  onChange(option);
+                  setIsOpen(false);
+                  setSearchQuery('');
+                }}
+                className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 flex items-center ${
+                  value === option ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+
+          {/* 구분선 및 새 항목 추가 */}
+          {!isAddingNew && (
+            <>
+              <div className="border-t border-gray-200 border-dashed"></div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingNew(true);
+                  setSearchQuery('');
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-blue-600 hover:bg-blue-50 flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                새 항목 추가
+              </button>
+            </>
+          )}
+
+          {/* 새 항목 입력 */}
+          {isAddingNew && (
+            <div className="p-2 border-t border-gray-200 bg-gray-50">
+              <div className="flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      handleAddNew();
+                    } else if (e.key === 'Escape') {
+                      setIsAddingNew(false);
+                      setNewValue('');
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                  placeholder="새 항목 입력..."
+                />
+                <button
+                  type="button"
+                  onClick={handleAddNew}
+                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+                >
+                  추가
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingNew(false);
+                    setNewValue('');
+                  }}
+                  className="px-3 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const STAGES: Record<string, { color: string; label: string }> = {
   '1': { color: 'bg-blue-100 text-blue-800', label: '문제 이해하기' },
@@ -612,6 +811,15 @@ const MathTutorDiagnostic: React.FC = () => {
   const [apiCallLogs, setApiCallLogs] = useState<ApiCallLog[]>([]);
   const [activeTab, setActiveTab] = useState<'chat' | 'logs' | 'diagnostic'>('chat');
   const [showProblemDetail, setShowProblemDetail] = useState(false);
+  const [showAddProblemModal, setShowAddProblemModal] = useState(false);
+  const [inputMode, setInputMode] = useState<'text' | 'image'>('text');
+  const [explanationInputMode, setExplanationInputMode] = useState<'text' | 'image'>('text');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [explanationImagePreview, setExplanationImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const explanationFileInputRef = useRef<HTMLInputElement>(null);
+  const [grades, setGrades] = useState<string[]>([]);
+  const [units, setUnits] = useState<string[]>([]);
   
   // ✅ 커스텀 훅으로 LLM 설정 로드
   const {
@@ -626,10 +834,10 @@ const MathTutorDiagnostic: React.FC = () => {
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
     content: '',
-    category: '',
     grade: '',
     unit: '',
-    difficulty: 'medium'
+    explanationText: '',
+    notes: ''
   });
 
   const abortRef = useRef<AbortController | null>(null);
@@ -664,6 +872,27 @@ const MathTutorDiagnostic: React.FC = () => {
 
   // ✅ LLM 설정은 useActiveLLMConfig 훅이 처리 (기존 로직 제거됨)
 
+  // 학년/단원 목록 로드
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedGrades = localStorage.getItem('math_tutor_grades');
+    const storedUnits = localStorage.getItem('math_tutor_units');
+    
+    if (storedGrades) {
+      try {
+        setGrades(JSON.parse(storedGrades));
+      } catch (e) {
+        console.error('Failed to load grades:', e);
+      }
+    }
+    if (storedUnits) {
+      try {
+        setUnits(JSON.parse(storedUnits));
+      } catch (e) {
+        console.error('Failed to load units:', e);
+      }
+    }
+  }, []);
 
   // Load problems from localStorage
   useEffect(() => {
@@ -743,6 +972,110 @@ const MathTutorDiagnostic: React.FC = () => {
     setShowProblemManager(false);
   };
 
+  // 학년 추가
+  const handleAddGrade = (value: string) => {
+    const updatedGrades = [...grades, value].sort();
+    setGrades(updatedGrades);
+    localStorage.setItem('math_tutor_grades', JSON.stringify(updatedGrades));
+  };
+
+  // 단원 추가
+  const handleAddUnit = (value: string) => {
+    const updatedUnits = [...units, value].sort();
+    setUnits(updatedUnits);
+    localStorage.setItem('math_tutor_units', JSON.stringify(updatedUnits));
+  };
+
+  // 이미지 업로드 핸들러
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'problem' | 'explanation') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        if (type === 'problem') {
+          setImagePreview(result);
+          setNewProblem(prev => ({
+            ...prev,
+            imageUrl: result,
+            content: `[이미지 문제: ${file.name}]`
+          }));
+        } else {
+          setExplanationImagePreview(result);
+          setNewProblem(prev => ({
+            ...prev,
+            explanationImageUrl: result,
+            explanationText: `[이미지 해설: ${file.name}]`
+          }));
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // 문제 추가
+  const addProblem = () => {
+    if (!newProblem.title?.trim()) {
+      alert('문제 제목을 입력해주세요.');
+      return;
+    }
+
+    if (!newProblem.content?.trim() && !newProblem.imageUrl) {
+      alert('문제 내용이나 이미지를 입력해주세요.');
+      return;
+    }
+
+    const problem: Problem = {
+      id: uid(),
+      title: newProblem.title.trim(),
+      content: newProblem.content?.trim() || '',
+      imageUrl: newProblem.imageUrl,
+      explanationImageUrl: newProblem.explanationImageUrl,
+      explanationText: newProblem.explanationText?.trim() || undefined,
+      grade: newProblem.grade?.trim() || '',
+      unit: newProblem.unit?.trim() || '',
+      notes: newProblem.notes?.trim() || undefined,
+      createdAt: nowTime(),
+      updatedAt: nowTime()
+    };
+
+    const updatedProblems = [...problems, problem];
+    setProblems(updatedProblems);
+    localStorage.setItem('math_tutor_problems', JSON.stringify(updatedProblems));
+    setSelectedProblemId(problem.id);
+    
+    // 폼 초기화
+    setNewProblem({
+      title: '',
+      content: '',
+      grade: '',
+      unit: '',
+      explanationText: '',
+      notes: ''
+    });
+    setImagePreview(null);
+    setExplanationImagePreview(null);
+    setInputMode('text');
+    setExplanationInputMode('text');
+    setShowAddProblemModal(false);
+  };
+
+  // 문제 등록 취소
+  const cancelAddProblem = () => {
+    setNewProblem({
+      title: '',
+      content: '',
+      grade: '',
+      unit: '',
+      explanationText: '',
+      notes: ''
+    });
+    setImagePreview(null);
+    setExplanationImagePreview(null);
+    setInputMode('text');
+    setExplanationInputMode('text');
+    setShowAddProblemModal(false);
+  };
 
   const contextText = useMemo(() => buildContext(messages), [messages]);
 
@@ -1112,6 +1445,12 @@ const MathTutorDiagnostic: React.FC = () => {
                   문제
                 </h2>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowAddProblemModal(true)}
+                    className="px-3 py-2 text-blue-600 hover:text-blue-800 text-sm font-medium rounded-lg hover:bg-blue-50 transition-all duration-200 border border-blue-200"
+                  >
+                    문제 등록
+                  </button>
                   <button
                     onClick={() => setShowProblemManager(!showProblemManager)}
                     className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200"
@@ -1952,6 +2291,219 @@ const MathTutorDiagnostic: React.FC = () => {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 문제 등록 모달 */}
+      {showAddProblemModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={cancelAddProblem}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+              <h2 className="text-xl font-bold text-gray-900">새 문제 추가</h2>
+              <button
+                onClick={cancelAddProblem}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* 모달 내용 */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {/* 제목 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">문제 제목 *</label>
+                <input
+                  type="text"
+                  value={newProblem.title || ''}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="예: 이차방정식 근의 공식"
+                />
+              </div>
+
+              {/* 학년/태그명 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <SearchableSelect
+                  label="학년"
+                  placeholder="선택하세요"
+                  options={grades}
+                  value={newProblem.grade || ''}
+                  onChange={(value) => setNewProblem(prev => ({ ...prev, grade: value }))}
+                  onAddNew={handleAddGrade}
+                  emptyText="학년 없음"
+                />
+                <SearchableSelect
+                  label="태그명"
+                  placeholder="선택하세요"
+                  options={units}
+                  value={newProblem.unit || ''}
+                  onChange={(value) => setNewProblem(prev => ({ ...prev, unit: value }))}
+                  onAddNew={handleAddUnit}
+                  emptyText="태그명 없음"
+                />
+              </div>
+
+              {/* 문제 입력 방식 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">문제 입력 방식</label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('text')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      inputMode === 'text'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    텍스트
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInputMode('image')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      inputMode === 'image'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    이미지
+                  </button>
+                </div>
+
+                {inputMode === 'text' ? (
+                  <textarea
+                    value={newProblem.content || ''}
+                    onChange={(e) => setNewProblem(prev => ({ ...prev, content: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows={4}
+                    placeholder="문제 내용을 입력하세요..."
+                  />
+                ) : (
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(e, 'problem')}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      이미지 선택
+                    </button>
+                    {imagePreview && (
+                      <div className="mt-3">
+                        <img src={imagePreview} alt="미리보기" className="max-w-full h-auto border border-gray-300 rounded" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 해설 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">해설 (선택사항)</label>
+                <div className="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setExplanationInputMode('text')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      explanationInputMode === 'text'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    텍스트
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExplanationInputMode('image')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                      explanationInputMode === 'image'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    이미지
+                  </button>
+                </div>
+
+                {explanationInputMode === 'text' ? (
+                  <textarea
+                    value={newProblem.explanationText || ''}
+                    onChange={(e) => setNewProblem(prev => ({ ...prev, explanationText: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                    rows={4}
+                    placeholder="해설을 입력하세요..."
+                  />
+                ) : (
+                  <div>
+                    <input
+                      ref={explanationFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleImageUpload(e, 'explanation')}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => explanationFileInputRef.current?.click()}
+                      className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      해설 이미지 선택
+                    </button>
+                    {explanationImagePreview && (
+                      <div className="mt-3">
+                        <img src={explanationImagePreview} alt="해설 미리보기" className="max-w-full h-auto border border-orange-300 rounded" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 비고 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">비고</label>
+                <textarea
+                  value={newProblem.notes || ''}
+                  onChange={(e) => setNewProblem(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  rows={3}
+                  placeholder="메모나 비고사항을 입력하세요..."
+                />
+              </div>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button
+                onClick={cancelAddProblem}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+              >
+                취소
+              </button>
+              <button
+                onClick={addProblem}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                저장
               </button>
             </div>
           </div>
