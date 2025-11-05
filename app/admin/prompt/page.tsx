@@ -399,8 +399,154 @@ const AIManagement = () => {
       }
     }
 
-    // ✅ 자동 추가 로직 제거: 사용자가 삭제한 설정은 다시 추가하지 않음
-    // (기존: "지식요소 진단 통합형" 및 "기본 LLM 설정" 자동 생성)
+    // ✅ 기본 설정이 없으면 자동 추가
+    if (parsedConfigs.length === 0) {
+      const defaultSystemPrompt = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하고 가르치는 교육용 AI입니다. 주어진 학생의 응답과 문제 및 해설 데이터를 분석하여 다음을 수행하세요: 
+
+### **입력 데이터**
+
+- **문제**: {문제 텍스트, 예: "이차방정식 x^2 - 5x + 6 = 0의 근을 구하세요."}
+
+- **해설**: {해설 텍스트, 예: "(x-2)(x-3)=0이므로 근은 2, 3입니다."}
+
+- **학생 응답**: {학생의 답변, 풀이 과정, 또는 질문, 예: "근이 뭔지 모르겠어요", "x = 2, 4", 또는 "(x-2)(x-4) = 0"}
+
+- **컨텍스트** (선택 사항): {이전 대화 이력, 과거 오류 패턴}
+
+### **임무**
+
+1. **학생 상태 진단**:
+
+   - **문제 이해도**: 학생이 문제의 요구사항(예: 근 구하기)을 파악했는지? (낮음/중간/높음)
+
+   - **개념 지식**: 관련 수학 개념(예: 이차방정식, 인수분해)을 이해하는 수준 (낮음/중간/높음)
+
+   - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별
+
+   - **자신감 수준**: 학생의 답변에서 드러나는 태도 (낮음: 좌절/망설임, 중간: 보통, 높음: 자신감)
+
+2. **폴리아 4단계 추천**:
+
+   - 진단 결과에 따라 적합한 폴리아 단계(1~4) 추천
+
+   - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
+
+3. **다음 질문 제안**:
+
+   - 해설 풀이 기반의 단계적인 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?")
+
+   - 4단계(되돌아보기)는 AI가 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체
+
+4. **피드백 완료 여부 판단**:
+
+   - 학생이 충분한 피드백을 받았는지 여부 판단 (예: "더 이상 질문이 없고, 학생이 문제를 이해한 것으로 보임")
+
+   - "true" 또는 "false"로 응답
+
+### **출력 형식**
+
+{
+
+  "diagnosis": {
+
+    "problem_understanding": "low/medium/high",
+
+    "concept_knowledge": "low/medium/high",
+
+    "error_pattern": "none/calculation_error/logical_error/concept_confusion/approach_error",
+
+    "confidence_level": "low/medium/high"
+
+  },
+
+  "recommended_stage": "1/2/3/4",
+
+  "stage_reason": "추천 이유 설명",
+
+  "next_question": "학생에게 제안할 질문 또는 힌트",
+
+  "feedback_completed": "true/false"
+
+}`;
+
+      const defaultInputSchema = {
+        type: "object" as const,
+        properties: {
+          problem: {
+            type: "string" as const,
+            description: "문제 텍스트(이미지 문제면 간단 설명)"
+          },
+          problemImage: {
+            type: "string" as const,
+            description: "문제 이미지 URL (Base64)"
+          },
+          explanation: {
+            type: "string" as const,
+            description: "문제의 공식 해설 텍스트"
+          },
+          explanationImage: {
+            type: "string" as const,
+            description: "해설 이미지 URL (Base64)"
+          },
+          userMessage: {
+            type: "string" as const,
+            description: "학생의 최신 입력(답변/질문/풀이 등)"
+          },
+          context: {
+            type: "string" as const,
+            description: "이전 대화 요약, 학습 스타일/오류 패턴 등",
+            default: ""
+          }
+        },
+        required: ["userMessage"] as const,
+        additionalProperties: false as const
+      };
+
+      const defaultOutputSchema = {
+        type: "OBJECT" as const,
+        properties: {
+          diagnosis: {
+            type: "OBJECT" as const,
+            properties: {
+              problem_understanding: { type: "STRING" as const, enum: ["low", "medium", "high"] as const },
+              concept_knowledge: { type: "STRING" as const, enum: ["low", "medium", "high"] as const },
+              error_pattern: { type: "STRING" as const, enum: ["none", "calculation_error", "logical_error", "concept_confusion", "approach_error"] as const },
+              confidence_level: { type: "STRING" as const, enum: ["low", "medium", "high"] as const }
+            },
+            required: ["problem_understanding", "concept_knowledge", "error_pattern", "confidence_level"] as const
+          },
+          recommended_stage: { type: "STRING" as const, enum: ["1", "2", "3", "4"] as const },
+          stage_reason: { type: "STRING" as const },
+          next_question: { type: "STRING" as const },
+          feedback_completed: { type: "STRING" as const, enum: ["true", "false"] as const }
+        },
+        required: ["diagnosis", "recommended_stage", "stage_reason", "next_question", "feedback_completed"] as const
+      };
+
+      const defaultConfig: LLMConfig = {
+        id: uid(),
+        name: '기본 LLM 설정',
+        description: '폴리아 4단계 기반 기본 진단 설정',
+        version: 'v1.0.0',
+        systemPrompt: defaultSystemPrompt,
+        userPrompt: '',
+        inputSchema: defaultInputSchema as any,
+        outputSchema: defaultOutputSchema as any,
+        responseMimeType: 'application/json',
+        provider: 'gemini',
+        model: 'gemini-2.5-pro',
+        temperature: 0,
+        maxOutputTokens: 8192,
+        thinkingBudget: 1800,
+        createdAt: nowTime(),
+        updatedAt: nowTime(),
+        isActive: true
+      };
+
+      parsedConfigs = [defaultConfig];
+      localStorage.setItem('math_tutor_llm_configs', JSON.stringify(parsedConfigs));
+      localStorage.setItem('math_tutor_active_llm_config_id', defaultConfig.id);
+    }
     
     setConfigs(parsedConfigs);
 
