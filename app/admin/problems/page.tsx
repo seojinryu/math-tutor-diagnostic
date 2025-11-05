@@ -19,7 +19,6 @@ interface KnowledgeElement {
   description: string;
   source: string; // 성취기준코드
   cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
-  weight?: number; // 가중치 (0~1)
   prereqIds?: string[]; // 선행요소 ID 목록
   exampleQuestions?: string[]; // 예시문항/미니퀴즈
 }
@@ -291,9 +290,23 @@ const ProblemsManagement = () => {
     description: '',
     source: '',
     cognitiveLevel: 'remember',
-    weight: 0.5,
     prereqIds: [],
     exampleQuestions: []
+  });
+
+  // 문제-지식요소 매핑 관리
+  const [keMaps, setKeMaps] = useState<ProblemKEMap[]>([]);
+  const [editingKEMap, setEditingKEMap] = useState<ProblemKEMap | null>(null);
+  const [isAddingKEMap, setIsAddingKEMap] = useState(false);
+  const [newKEMap, setNewKEMap] = useState<Partial<ProblemKEMap>>({
+    keId: '',
+    weight: 0.5,
+    requiredLevel: 1,
+    evidenceRules: {
+      correctAnswer: [],
+      intermediateSteps: [],
+      errorPatterns: []
+    }
   });
 
   const nowTime = () =>
@@ -401,7 +414,9 @@ const ProblemsManagement = () => {
           setExplanationImagePreview(result);
           setNewProblem(prev => ({
             ...prev,
-            explanationImageUrl: result
+            explanationImageUrl: result,
+            // 해설 이미지 파일명을 explanationText에 저장
+            explanationText: `[이미지 해설: ${file.name}]`
           }));
         }
       };
@@ -432,6 +447,7 @@ const ProblemsManagement = () => {
       unit: newProblem.unit?.trim() || '',
       notes: newProblem.notes?.trim() || undefined,
       knowledgeElements: knowledgeElements.length > 0 ? knowledgeElements : undefined,
+      keMaps: keMaps.length > 0 ? keMaps : undefined,
       createdAt: nowTime(),
       updatedAt: nowTime()
     };
@@ -461,6 +477,7 @@ const ProblemsManagement = () => {
             unit: newProblem.unit?.trim() || '',
             notes: newProblem.notes?.trim() || undefined,
             knowledgeElements: knowledgeElements.length > 0 ? knowledgeElements : undefined,
+            keMaps: keMaps.length > 0 ? keMaps : undefined,
             updatedAt: nowTime()
           }
         : p
@@ -489,15 +506,16 @@ const ProblemsManagement = () => {
       notes: ''
     });
     setKnowledgeElements([]);
+    setKeMaps([]);
     setEditingKnowledgeElement(null);
     setIsAddingKnowledgeElement(false);
+    setIsAddingKEMap(false);
     setNewKnowledgeElement({
       category: 'concept',
       name: '',
       description: '',
       source: '',
       cognitiveLevel: 'remember',
-      weight: 0.5,
       prereqIds: [],
       exampleQuestions: []
     });
@@ -525,7 +543,9 @@ const ProblemsManagement = () => {
       notes: problem.notes || ''
     });
     setKnowledgeElements(problem.knowledgeElements || []);
+    setKeMaps(problem.keMaps || []);
     setIsAddingKnowledgeElement(false);
+    setIsAddingKEMap(false);
     if (problem.imageUrl) {
       setInputMode('image');
       setImagePreview(problem.imageUrl);
@@ -559,7 +579,6 @@ const ProblemsManagement = () => {
               source: newKnowledgeElement.source?.trim() || '',
               category: newKnowledgeElement.category!,
               cognitiveLevel: newKnowledgeElement.cognitiveLevel!,
-              weight: newKnowledgeElement.weight ?? 0.5,
               prereqIds: newKnowledgeElement.prereqIds ?? [],
               exampleQuestions: newKnowledgeElement.exampleQuestions ?? []
             } as KnowledgeElement
@@ -575,7 +594,6 @@ const ProblemsManagement = () => {
         description: newKnowledgeElement.description!.trim(),
         source: newKnowledgeElement.source?.trim() || '',
         cognitiveLevel: newKnowledgeElement.cognitiveLevel!,
-        weight: newKnowledgeElement.weight ?? 0.5,
         prereqIds: newKnowledgeElement.prereqIds ?? [],
         exampleQuestions: newKnowledgeElement.exampleQuestions ?? []
       };
@@ -589,7 +607,6 @@ const ProblemsManagement = () => {
       description: '',
       source: '',
       cognitiveLevel: 'remember',
-      weight: 0.5,
       prereqIds: [],
       exampleQuestions: []
     });
@@ -606,7 +623,6 @@ const ProblemsManagement = () => {
       description: element.description,
       source: element.source,
       cognitiveLevel: element.cognitiveLevel,
-      weight: element.weight ?? 0.5,
       prereqIds: element.prereqIds ?? [],
       exampleQuestions: element.exampleQuestions ?? []
     });
@@ -629,9 +645,103 @@ const ProblemsManagement = () => {
       description: '',
       source: '',
       cognitiveLevel: 'remember',
-      weight: 0.5,
       prereqIds: [],
       exampleQuestions: []
+    });
+  };
+
+  // 문제-지식요소 매핑 추가/수정
+  const saveKEMap = () => {
+    if (!newKEMap.keId?.trim()) {
+      alert('지식요소를 선택해주세요.');
+      return;
+    }
+
+    if (editingKEMap) {
+      // 수정
+      setKeMaps(keMaps.map(map =>
+        map.keId === editingKEMap.keId && map.problemId === editingKEMap.problemId
+          ? {
+              ...newKEMap,
+              problemId: editingKEMap.problemId,
+              keId: newKEMap.keId!.trim(),
+              weight: newKEMap.weight ?? 0.5,
+              requiredLevel: newKEMap.requiredLevel ?? 1,
+              evidenceRules: {
+                correctAnswer: newKEMap.evidenceRules?.correctAnswer ?? [],
+                intermediateSteps: newKEMap.evidenceRules?.intermediateSteps ?? [],
+                errorPatterns: newKEMap.evidenceRules?.errorPatterns ?? []
+              }
+            } as ProblemKEMap
+          : map
+      ));
+      setEditingKEMap(null);
+    } else {
+      // 추가
+      const newMap: ProblemKEMap = {
+        problemId: editingProblem?.id || '',
+        keId: newKEMap.keId!.trim(),
+        weight: newKEMap.weight ?? 0.5,
+        requiredLevel: newKEMap.requiredLevel ?? 1,
+        evidenceRules: {
+          correctAnswer: newKEMap.evidenceRules?.correctAnswer ?? [],
+          intermediateSteps: newKEMap.evidenceRules?.intermediateSteps ?? [],
+          errorPatterns: newKEMap.evidenceRules?.errorPatterns ?? []
+        }
+      };
+      setKeMaps([...keMaps, newMap]);
+    }
+
+    // 폼 초기화
+    setNewKEMap({
+      keId: '',
+      weight: 0.5,
+      requiredLevel: 1,
+      evidenceRules: {
+        correctAnswer: [],
+        intermediateSteps: [],
+        errorPatterns: []
+      }
+    });
+    setIsAddingKEMap(false);
+  };
+
+  // 문제-지식요소 매핑 편집 시작
+  const startEditKEMap = (map: ProblemKEMap) => {
+    setEditingKEMap(map);
+    setIsAddingKEMap(false);
+    setNewKEMap({
+      keId: map.keId,
+      weight: map.weight,
+      requiredLevel: map.requiredLevel,
+      evidenceRules: {
+        correctAnswer: map.evidenceRules.correctAnswer ?? [],
+        intermediateSteps: map.evidenceRules.intermediateSteps ?? [],
+        errorPatterns: map.evidenceRules.errorPatterns ?? []
+      }
+    });
+  };
+
+  // 문제-지식요소 매핑 삭제
+  const deleteKEMap = (keId: string) => {
+    if (confirm('이 매핑을 삭제하시겠습니까?')) {
+      setKeMaps(keMaps.filter(map => map.keId !== keId));
+    }
+  };
+
+  // 문제-지식요소 매핑 편집 취소
+  const cancelEditKEMap = () => {
+    setEditingKEMap(null);
+    setIsAddingKEMap(false);
+    setNewKEMap({
+      keId: '',
+      weight: 0.5,
+      requiredLevel: 1,
+      evidenceRules: {
+        correctAnswer: [],
+        intermediateSteps: [],
+        errorPatterns: []
+      }
     });
   };
 
@@ -990,7 +1100,6 @@ const ProblemsManagement = () => {
                           description: '',
                           source: '',
                           cognitiveLevel: 'remember',
-                          weight: 0.5,
                           prereqIds: [],
                           exampleQuestions: []
                         });
@@ -1129,30 +1238,15 @@ const ProblemsManagement = () => {
                         placeholder="예: 직각삼각형에서 sin, cos, tan의 비 정의"
                       />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">가중치 (0~1)</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="1"
-                          value={newKnowledgeElement.weight ?? 0.5}
-                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, weight: parseFloat(e.target.value) || 0.5 }))}
-                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                          placeholder="0.5"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">선행요소 ID (쉼표로 구분)</label>
-                        <input
-                          type="text"
-                          value={newKnowledgeElement.prereqIds?.join(', ') || ''}
-                          onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, prereqIds: e.target.value.split(',').map(s => s.trim()).filter(s => s) }))}
-                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                          placeholder="예: KE1, KE2"
-                        />
-                      </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">선행요소 ID (쉼표로 구분)</label>
+                      <input
+                        type="text"
+                        value={newKnowledgeElement.prereqIds?.join(', ') || ''}
+                        onChange={(e) => setNewKnowledgeElement(prev => ({ ...prev, prereqIds: e.target.value.split(',').map(s => s.trim()).filter(s => s) }))}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        placeholder="예: KE1, KE2"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">예시문항/미니퀴즈 (한 줄에 하나씩)</label>
@@ -1185,6 +1279,211 @@ const ProblemsManagement = () => {
                   </div>
                 )}
               </div>
+
+              {/* 문제-지식요소 매핑 */}
+              {knowledgeElements.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-sm font-medium text-gray-700">문제-지식요소 매핑</label>
+                    {!isAddingKEMap && !editingKEMap && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingKEMap(true);
+                          setEditingKEMap(null);
+                          setNewKEMap({
+                            keId: '',
+                            weight: 0.5,
+                            requiredLevel: 1,
+                            evidenceRules: {
+                              correctAnswer: [],
+                              intermediateSteps: [],
+                              errorPatterns: []
+                            }
+                          });
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        + 매핑 추가
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 매핑 목록 */}
+                  {keMaps.length > 0 && (
+                    <div className="mb-4 border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">지식요소</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">가중치</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">필요 레벨</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">증거 규칙</th>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-700">작업</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {keMaps.map((map, idx) => {
+                              const keName = knowledgeElements.find(ke => ke.id === map.keId)?.name || map.keId;
+                              return (
+                                <tr key={idx} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 text-xs text-gray-900 font-medium">{keName}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-600">{map.weight}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-600">{map.requiredLevel}</td>
+                                  <td className="px-3 py-2 text-xs text-gray-600">
+                                    <div className="space-y-1">
+                                      {map.evidenceRules.correctAnswer && map.evidenceRules.correctAnswer.length > 0 && (
+                                        <div>정답: {map.evidenceRules.correctAnswer.join(', ')}</div>
+                                      )}
+                                      {map.evidenceRules.intermediateSteps && map.evidenceRules.intermediateSteps.length > 0 && (
+                                        <div>중간식: {map.evidenceRules.intermediateSteps.join(', ')}</div>
+                                      )}
+                                      {map.evidenceRules.errorPatterns && map.evidenceRules.errorPatterns.length > 0 && (
+                                        <div>오류: {map.evidenceRules.errorPatterns.join(', ')}</div>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditKEMap(map)}
+                                        className="text-blue-600 hover:text-blue-800 text-xs"
+                                        title="편집"
+                                      >
+                                        <Edit2 className="w-3 h-3" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => deleteKEMap(map.keId)}
+                                        className="text-red-600 hover:text-red-800 text-xs"
+                                        title="삭제"
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 매핑 추가/편집 폼 */}
+                  {(isAddingKEMap || editingKEMap) && (
+                    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">지식요소 *</label>
+                        <select
+                          value={newKEMap.keId || ''}
+                          onChange={(e) => setNewKEMap(prev => ({ ...prev, keId: e.target.value }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                        >
+                          <option value="">선택하세요</option>
+                          {knowledgeElements.map(ke => (
+                            <option key={ke.id} value={ke.id}>{ke.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">가중치 (0~1)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="1"
+                            value={newKEMap.weight ?? 0.5}
+                            onChange={(e) => setNewKEMap(prev => ({ ...prev, weight: parseFloat(e.target.value) || 0.5 }))}
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700 mb-1">필요 레벨 (1~4)</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="4"
+                            value={newKEMap.requiredLevel ?? 1}
+                            onChange={(e) => setNewKEMap(prev => ({ ...prev, requiredLevel: parseInt(e.target.value) || 1 }))}
+                            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">정답 패턴 키워드 (쉼표로 구분)</label>
+                        <input
+                          type="text"
+                          value={newKEMap.evidenceRules?.correctAnswer?.join(', ') || ''}
+                          onChange={(e) => setNewKEMap(prev => ({
+                            ...prev,
+                            evidenceRules: {
+                              ...prev.evidenceRules,
+                              correctAnswer: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                            }
+                          }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="예: x=2, 근, 해"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">중간식 패턴 키워드 (쉼표로 구분)</label>
+                        <input
+                          type="text"
+                          value={newKEMap.evidenceRules?.intermediateSteps?.join(', ') || ''}
+                          onChange={(e) => setNewKEMap(prev => ({
+                            ...prev,
+                            evidenceRules: {
+                              ...prev.evidenceRules,
+                              intermediateSteps: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                            }
+                          }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="예: 인수분해, 완전제곱식"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">오류 패턴 키워드 (쉼표로 구분)</label>
+                        <input
+                          type="text"
+                          value={newKEMap.evidenceRules?.errorPatterns?.join(', ') || ''}
+                          onChange={(e) => setNewKEMap(prev => ({
+                            ...prev,
+                            evidenceRules: {
+                              ...prev.evidenceRules,
+                              errorPatterns: e.target.value.split(',').map(s => s.trim()).filter(s => s)
+                            }
+                          }))}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                          placeholder="예: 부호 오류, 계산 실수"
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        {editingKEMap && (
+                          <button
+                            type="button"
+                            onClick={cancelEditKEMap}
+                            className="px-3 py-1.5 text-xs text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
+                          >
+                            취소
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={saveKEMap}
+                          className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                          {editingKEMap ? '수정' : '추가'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="p-6 border-t border-gray-200 flex justify-end space-x-3">

@@ -2,7 +2,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Send, MessageCircle, Brain, BookOpen, ChevronDown, ChevronUp, User, Plus, Edit2, Trash2, Check, X, List, Image, Upload, FileText, ChevronRight, Settings } from 'lucide-react';
 import type { LLMConfig } from '../admin/prompt/page';
-import { DEFAULT_RESPONSE_SCHEMA } from '../admin/prompt/page';
+import { DEFAULT_RESPONSE_SCHEMA, DEFAULT_INPUT_SCHEMA } from '../admin/prompt/page';
+import { useActiveLLMConfig } from '../hooks/useActiveLLMConfig';
 
 /**********************
  * Types
@@ -25,9 +26,19 @@ export interface Problem {
     description: string;
     source: string;
     cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
-    weight?: number;
     prereqIds?: string[];
     exampleQuestions?: string[];
+  }>;
+  keMaps?: Array<{
+    problemId: string;
+    keId: string;
+    weight: number;
+    requiredLevel: number;
+    evidenceRules: {
+      correctAnswer?: string[];
+      intermediateSteps?: string[];
+      errorPatterns?: string[];
+    };
   }>;
   difficulty?: 'easy' | 'medium' | 'hard';
   createdAt: string;
@@ -72,6 +83,41 @@ export interface Message {
   isError?: boolean;
   debug?: string;
   problemId?: string;
+}
+
+export interface ApiCallLog {
+  id: string;
+  timestamp: string;
+  input: {
+    problem?: string; // ✅ 선택적 (inputSchema에 정의된 경우만)
+    problemImage?: string;
+    explanationImage?: string;
+    explanationText?: string;
+    explanationDisplay?: string; // 해설 표시용 (이미지면 파일명, 텍스트면 내용)
+    userMessage: string; // 필수
+    context?: string; // ✅ 선택적 (inputSchema에 정의된 경우만)
+    knowledgeElements?: Array<{
+      id: string;
+      name: string;
+      category: string;
+      cognitiveLevel: string;
+    }>;
+  };
+  prompt: {
+    systemPrompt: string;
+    userPrompt?: string;
+    model: string;
+    temperature: number;
+    maxOutputTokens: number;
+    thinkingBudget: number;
+    responseMimeType: string;
+    responseSchema?: unknown;
+  };
+  output: {
+    rawResponse?: string;
+    parsedDiagnostic?: DiagnosticData;
+    error?: string;
+  };
 }
 
 // LLMConfig는 admin/prompt/page에서 import
@@ -251,96 +297,6 @@ function validateDiagnostic(obj: unknown): asserts obj is DiagnosticData {
 /**********************
  * Gemini AI Integration
  **********************/
-// 기본 LLM 설정 (fallback용)
-const DEFAULT_LLM_CONFIG: Partial<LLMConfig> = {
-  model: 'gemini-2.5-pro',
-  temperature: 0,
-  maxOutputTokens: 8192,
-  thinkingBudget: 1800,
-  responseMimeType: 'application/json',
-  systemPrompt: '',
-  outputSchema: DEFAULT_RESPONSE_SCHEMA
-};
-
-// 기본 프롬프트 (fallback용)
-const DEFAULT_PROMPT = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 AI입니다.
-
-주어진 학생의 응답과 문제 데이터를 분석하여 다음을 수행하세요: 
-
-### **입력 데이터**
-
-- **문제**: {문제 텍스트, 예: "이차방정식 x^2 - 5x + 6 = 0의 근을 구하세요."}
-
-- **해설**: {해설 텍스트}
-
-- **학생 응답**: {학생의 답변, 풀이 과정, 또는 질문, 예: "근이 뭔지 모르겠어요", "x = 2, 4", 또는 "(x-2)(x-4) = 0"}
-
-- **컨텍스트** (선택 사항): {이전 대화 이력, 과거 오류 패턴}
-
-### **임무**
-
-1. **학생 상태 진단**:
-
-   - **문제 이해도**: 학생이 문제의 요구사항(예: 근 구하기)을 파악했는지? (낮음/중간/높음)
-
-   - **개념 지식**: 관련 수학 개념(예: 이차방정식, 인수분해)을 이해하는 수준 (낮음/중간/높음)
-
-   - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별
-
-   - **자신감 수준**: 학생의 답변에서 드러나는 태도 (낮음: 좌절/망설임, 중간: 보통, 높음: 자신감)
-
-2. **폴리아 4단계 추천**:
-
-   - 진단 결과에 따라 적합한 폴리아 단계(1~4) 추천
-
-   - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
-
-3. **다음 질문 제안**:
-
-   - 학생의 상태에 맞춘 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?")
-
-   - 문제 해설 내용을 참고하되, 학생한테는 해설자료가 없는 상황 고려
-
-   - 4단계(되돌아보기)는 AI가 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체한다.
-
-4. **피드백 완료 여부 판단**:
-
-   - 학생이 충분한 피드백을 받았는지 여부 판단 (예: "더 이상 질문이 없고, 학생이 문제를 이해한 것으로 보임")
-
-   - "true" 또는 "false"로 응답
-
-### **출력 형식**
-
-{
-
-  "diagnosis": {
-
-    "problem_understanding": "low/medium/high",
-
-    "concept_knowledge": "low/medium/high",
-
-    "error_pattern": "none/calculation_error/logical_error/concept_confusion/approach_error",
-
-    "confidence_level": "low/medium/high"
-
-  },
-
-  "recommended_stage": "1/2/3/4",
-
-  "stage_reason": "추천 이유 설명",
-
-  "next_question": "학생에게 제안할 질문 또는 힌트",
-
-  "feedback_completed": "true/false"
-
-}`;
-
-// 사용 가능한 모델 목록
-const AVAILABLE_MODELS = [
-  { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-  { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-  { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' }
-];
 
 interface GeminiArgs {
   systemPrompt: string;
@@ -350,18 +306,17 @@ interface GeminiArgs {
   thinkingBudget: number;
   responseSchema?: typeof DEFAULT_RESPONSE_SCHEMA;
   responseMimeType: string;
-  problem: string;
+  problem?: string; // ✅ 선택적 (inputSchema에 정의된 경우만)
   problemImage?: string;
   explanationImage?: string;
   explanationText?: string;
-  userMessage: string;
-  context: string;
+  userMessage: string; // 필수
+  context?: string; // ✅ 선택적 (inputSchema에 정의된 경우만)
   knowledgeElements?: Array<{
     id: string;
     name: string;
     category: 'concept' | 'principle' | 'procedure' | 'integration';
     cognitiveLevel: 'remember' | 'understand' | 'apply' | 'analyze' | 'synthesize' | 'evaluate';
-    weight?: number;
   }>;
   signal?: AbortSignal;
 }
@@ -420,24 +375,27 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
   // 텍스트 부분 구성
   let textContent = `### 실제 입력 데이터\n`;
 
-  if (problemImage && explanationImage) {
-    textContent += `- 문제: 첫 번째 이미지를 참고하세요. ${problem}\n`;
-    textContent += `- 해설: 두 번째 이미지를 참고하세요.\n`;
-  } else if (problemImage) {
-    textContent += `- 문제: 위 이미지를 참고하세요. ${problem}\n`;
-  } else if (explanationImage) {
-    textContent += `- 문제: ${problem}\n`;
-    textContent += `- 해설: 위 이미지를 참고하세요.\n`;
-  } else {
-    textContent += `- 문제: ${problem}\n`;
+  // ✅ problem이 있을 때만 포함
+  if (problem) {
+    if (problemImage && explanationImage) {
+      textContent += `- 문제: 첫 번째 이미지를 참고하세요. ${problem}\n`;
+      textContent += `- 해설: 두 번째 이미지를 참고하세요.\n`;
+    } else if (problemImage) {
+      textContent += `- 문제: 위 이미지를 참고하세요. ${problem}\n`;
+    } else if (explanationImage) {
+      textContent += `- 문제: ${problem}\n`;
+      textContent += `- 해설: 위 이미지를 참고하세요.\n`;
+    } else {
+      textContent += `- 문제: ${problem}\n`;
+    }
   }
 
-  // 해설 텍스트가 있는 경우 추가
+  // ✅ 해설 텍스트가 있을 때만 포함
   if (explanationText) {
     textContent += `- 해설 (텍스트): ${explanationText}\n`;
   }
 
-  // 지식요소 목록이 있는 경우 추가
+  // ✅ 지식요소 목록이 있을 때만 포함
   if (knowledgeElements && knowledgeElements.length > 0) {
     textContent += `\n지식요소목록:\n[\n`;
     knowledgeElements.forEach((ke) => {
@@ -455,13 +413,17 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
         synthesize: '종합',
         evaluate: '평가'
       };
-      textContent += `  {"id":"${ke.id}","이름":"${ke.name}","구분":"${categoryMap[ke.category]}","인지수준":"${cognitiveLevelMap[ke.cognitiveLevel]}","가중치":${ke.weight ?? 0.5}},\n`;
+      textContent += `  {"id":"${ke.id}","이름":"${ke.name}","구분":"${categoryMap[ke.category]}","인지수준":"${cognitiveLevelMap[ke.cognitiveLevel]}"},\n`;
     });
     textContent += `]\n`;
   }
 
   textContent += `- 학생 응답: ${userMessage}\n`;
-  textContent += `- 컨텍스트: ${context}`;
+  
+  // ✅ context가 있을 때만 포함
+  if (context) {
+    textContent += `- 컨텍스트: ${context}`;
+  }
 
   userParts.push({
     text: textContent
@@ -517,8 +479,22 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
       });
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: '알 수 없는 오류' }));
-        const errorMessage = errorData.error || `서버 오류: ${res.status} ${res.statusText}`;
+        let errorMessage = `서버 오류: ${res.status} ${res.statusText}`;
+        try {
+          const errorText = await res.text();
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText);
+              errorMessage = errorData.error || errorData.details || errorMessage;
+            } catch {
+              // JSON 파싱 실패 시 원본 텍스트 사용
+              errorMessage = errorText.length > 200 ? errorText.substring(0, 200) + '...' : errorText;
+            }
+          }
+        } catch (parseError) {
+          console.error('에러 응답 파싱 실패:', parseError);
+          errorMessage = `서버 오류: ${res.status} ${res.statusText} (응답 파싱 실패)`;
+        }
         
         // 429 에러인 경우 재시도 (exponential backoff)
         if (res.status === 429 && attempt < maxRetries - 1) {
@@ -576,11 +552,19 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
       validateDiagnostic(parsed);
       return parsed as DiagnosticData;
     } catch (error) {
+      // 에러 상세 정보 로깅
+      console.error(`[callGemini] 에러 발생 (시도 ${attempt + 1}/${maxRetries}):`, error);
+      
       lastError = error instanceof Error ? error : new Error(String(error));
       
       // AbortSignal인 경우 재시도하지 않음
       if (error instanceof Error && error.name === 'AbortError') {
         throw error;
+      }
+      
+      // 네트워크 에러나 fetch 실패인 경우 상세 정보 추가
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        lastError = new Error(`네트워크 오류: 서버에 연결할 수 없습니다. (${error.message})`);
       }
       
       // 마지막 시도가 아니면 계속 재시도
@@ -597,11 +581,14 @@ async function callGemini({ systemPrompt, model, temperature, maxOutputTokens, t
         throw new Error('API 요청 제한에 도달했습니다. 잠시(30초~1분) 기다린 후 다시 시도해주세요.');
       }
       
-      throw lastError;
+      // 에러 메시지에 시도 횟수 정보 추가
+      const finalError = lastError.message || '알 수 없는 오류';
+      throw new Error(`${finalError} (재시도 ${maxRetries}회 실패)`);
     }
   }
   
-  throw lastError || new Error('알 수 없는 오류가 발생했습니다.');
+  // 이 코드는 실행되지 않아야 하지만, 타입 안전성을 위해 유지
+  throw lastError || new Error('알 수 없는 오류가 발생했습니다. (재시도 로직 실패)');
 }
 
 /**********************
@@ -621,16 +608,20 @@ const MathTutorDiagnostic: React.FC = () => {
   const [showErrorDetail, setShowErrorDetail] = useState(false);
   const [showProblemManager, setShowProblemManager] = useState(false);
   const [showDiagnosticDetail, setShowDiagnosticDetail] = useState<Record<string, boolean>>({});
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [responseSchema, setResponseSchema] = useState<typeof DEFAULT_RESPONSE_SCHEMA>(DEFAULT_RESPONSE_SCHEMA);
-  const [responseMimeType, setResponseMimeType] = useState<string>('application/json');
-  const [model, setModel] = useState('gemini-2.5-pro');
-  const [temperature, setTemperature] = useState(0);
-  const [maxOutputTokens, setMaxOutputTokens] = useState(8192);
-  const [thinkingBudget, setThinkingBudget] = useState(1800);
-  const [llmConfigs, setLlmConfigs] = useState<LLMConfig[]>([]);
-  const [activeConfigId, setActiveConfigId] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(true);
+  const [apiCallLogs, setApiCallLogs] = useState<ApiCallLog[]>([]);
+  const [activeTab, setActiveTab] = useState<'chat' | 'logs' | 'diagnostic'>('chat');
+  const [showProblemDetail, setShowProblemDetail] = useState(false);
+  
+  // ✅ 커스텀 훅으로 LLM 설정 로드
+  const {
+    config: activeConfig,
+    configs: llmConfigs,
+    activeConfigs: activeLLMConfigs,  // ✅ 활성화된 설정 목록만
+    isLoading: isConfigLoading,
+    error: configError,
+    setActiveConfig: handleConfigChange
+  } = useActiveLLMConfig();
   
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
@@ -642,13 +633,17 @@ const MathTutorDiagnostic: React.FC = () => {
   });
 
   const abortRef = useRef<AbortController | null>(null);
+  
+  // ✅ activeConfig에서 시스템 프롬프트 생성
   const SYSTEM_PROMPT_JSON = useMemo(() => {
-    const prompt = customPrompt || DEFAULT_PROMPT;
-    return `${prompt}
+    if (!activeConfig?.systemPrompt) {
+      return null;
+    }
+    return `${activeConfig.systemPrompt}
 
 ---
 반드시 위의 형식과 일치하는 **순수 JSON 객체 하나만** 출력하세요. 코드블록(\`\`\`), 마크다운, 주석, 추가 설명, 접두/접미 텍스트를 금지합니다.`;
-  }, [customPrompt]);
+  }, [activeConfig?.systemPrompt]);
 
   const currentProblem = useMemo(() => {
     return problems.find(p => p.id === selectedProblemId);
@@ -667,102 +662,7 @@ const MathTutorDiagnostic: React.FC = () => {
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
-  // Load LLM configs from localStorage
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const loadConfig = (config: LLMConfig) => {
-      setCustomPrompt(config.systemPrompt);
-      setResponseSchema(config.outputSchema || DEFAULT_RESPONSE_SCHEMA);
-      setResponseMimeType(config.responseMimeType || 'application/json');
-      setModel(config.model);
-      setTemperature(config.temperature);
-      setMaxOutputTokens(config.maxOutputTokens);
-      setThinkingBudget(config.thinkingBudget);
-      setActiveConfigId(config.id);
-    };
-
-    const loadActiveConfig = () => {
-      const storedConfigs = localStorage.getItem('math_tutor_llm_configs');
-      const activeConfigId = localStorage.getItem('math_tutor_active_llm_config_id');
-
-      if (storedConfigs) {
-        try {
-          const parsedConfigs = JSON.parse(storedConfigs) as LLMConfig[];
-          setLlmConfigs(parsedConfigs);
-
-          // 활성 설정 찾기
-          if (activeConfigId) {
-            const activeConfig = parsedConfigs.find(c => c.id === activeConfigId);
-            if (activeConfig) {
-              loadConfig(activeConfig);
-              return;
-            }
-          }
-
-          // 활성 설정이 없으면 첫 번째 활성 설정 사용
-          const activeConfig = parsedConfigs.find(c => c.isActive) || parsedConfigs[0];
-          if (activeConfig) {
-            loadConfig(activeConfig);
-            localStorage.setItem('math_tutor_active_llm_config_id', activeConfig.id);
-            return;
-          }
-        } catch (e) {
-          console.error('Failed to load configs:', e);
-        }
-      }
-
-      // 설정이 없으면 기본값 사용
-      if (!storedConfigs) {
-        setCustomPrompt(DEFAULT_PROMPT);
-        setResponseSchema(DEFAULT_RESPONSE_SCHEMA);
-        setResponseMimeType('application/json');
-        setModel(DEFAULT_LLM_CONFIG.model || 'gemini-2.5-pro');
-        setTemperature(DEFAULT_LLM_CONFIG.temperature || 0);
-        setMaxOutputTokens(DEFAULT_LLM_CONFIG.maxOutputTokens || 8192);
-        setThinkingBudget(DEFAULT_LLM_CONFIG.thinkingBudget || 1800);
-      }
-    };
-    
-    // 초기 로드
-    loadActiveConfig();
-    
-    // storage 이벤트 감지
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'math_tutor_llm_configs' || e.key === 'math_tutor_active_llm_config_id') {
-        loadActiveConfig();
-      }
-    };
-    
-    // 커스텀 이벤트 감지
-    const handleConfigUpdate = () => {
-      loadActiveConfig();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('llmConfigUpdated', handleConfigUpdate);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('llmConfigUpdated', handleConfigUpdate);
-    };
-  }, []);
-
-  // LLM 설정 변경 핸들러
-  const handleConfigChange = (configId: string) => {
-    const config = llmConfigs.find(c => c.id === configId);
-    if (config) {
-      setCustomPrompt(config.systemPrompt);
-      setResponseSchema(config.outputSchema || DEFAULT_RESPONSE_SCHEMA);
-      setResponseMimeType(config.responseMimeType || 'application/json');
-      setModel(config.model);
-      setTemperature(config.temperature);
-      setMaxOutputTokens(config.maxOutputTokens);
-      setThinkingBudget(config.thinkingBudget);
-      setActiveConfigId(configId);
-      localStorage.setItem('math_tutor_active_llm_config_id', configId);
-    }
-  };
+  // ✅ LLM 설정은 useActiveLLMConfig 훅이 처리 (기존 로직 제거됨)
 
 
   // Load problems from localStorage
@@ -772,9 +672,28 @@ const MathTutorDiagnostic: React.FC = () => {
     if (storedProblems) {
       try {
         const parsed = JSON.parse(storedProblems) as Problem[];
-        setProblems(parsed);
-        if (parsed.length > 0 && !selectedProblemId) {
-          setSelectedProblemId(parsed[0].id);
+        
+        // ✅ 기존 문제 데이터 마이그레이션: explanationImageUrl이 있는데 explanationText가 없으면 자동 생성
+        const migratedProblems = parsed.map(problem => {
+          if (problem.explanationImageUrl && !problem.explanationText) {
+            return {
+              ...problem,
+              explanationText: `[이미지 해설: 문제${problem.id.substring(0, 8)}.webp]`
+            };
+          }
+          return problem;
+        });
+        
+        setProblems(migratedProblems);
+        
+        // 마이그레이션된 데이터 저장
+        if (migratedProblems.some((p, i) => p.explanationText !== parsed[i].explanationText)) {
+          localStorage.setItem('math_tutor_problems', JSON.stringify(migratedProblems));
+          console.log('✅ 기존 문제 explanationText 마이그레이션 완료');
+        }
+        
+        if (migratedProblems.length > 0 && !selectedProblemId) {
+          setSelectedProblemId(migratedProblems[0].id);
         }
       } catch (e) {
         console.error('Failed to load problems:', e);
@@ -832,45 +751,188 @@ const MathTutorDiagnostic: React.FC = () => {
       throw new Error('문제가 선택되지 않았습니다.');
     }
     
-    // 🔍 API 호출 전 설정 값 확인 로깅 (개발 환경에서만)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 [sendToGemini 호출 전 설정 확인]', {
-        activeConfigId,
-        model,
-        temperature,
-        maxOutputTokens,
-        thinkingBudget,
-        responseMimeType,
-        hasResponseSchema: !!responseSchema,
-        systemPromptLength: SYSTEM_PROMPT_JSON?.length || 0,
-      });
+    // ✅ activeConfig 필수 설정 값 검증
+    if (!activeConfig) {
+      throw new Error('AI 연동 설정이 로드되지 않았습니다. Admin 페이지에서 설정을 확인해주세요.');
     }
+    if (!SYSTEM_PROMPT_JSON) {
+      throw new Error('시스템 프롬프트가 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    if (!activeConfig.model) {
+      throw new Error('모델이 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    if (activeConfig.temperature === null || activeConfig.temperature === undefined) {
+      throw new Error('Temperature가 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    if (!activeConfig.maxOutputTokens) {
+      throw new Error('Max Output Tokens가 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    if (!activeConfig.thinkingBudget) {
+      throw new Error('Thinking Budget이 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    if (!activeConfig.responseMimeType) {
+      throw new Error('Response MIME Type이 설정되지 않았습니다. Admin 페이지에서 AI 연동 설정을 확인해주세요.');
+    }
+    
+    // ✅ 입력 스키마에서 선택된 필드 확인
+    const inputSchemaProps = (activeConfig.inputSchema?.properties || {}) as Record<string, unknown>;
+    const hasProblem = !!inputSchemaProps.problem;
+    const hasProblemImage = !!inputSchemaProps.problemImage;
+    const hasExplanation = !!inputSchemaProps.explanation;
+    const hasExplanationImage = !!inputSchemaProps.explanationImage;
+    const hasUserMessage = !!inputSchemaProps.userMessage;
+    const hasContext = !!inputSchemaProps.context;
+    const hasKnowledgeElements = !!inputSchemaProps.knowledgeElements;
+    
+    // 🔍 API 호출 전 설정 값 확인 로깅
+    console.log('🔍 [sendToGemini 호출 전 설정 확인]', {
+      activeConfigId: activeConfig.id,
+      activeConfigName: activeConfig.name,
+      selectedFields: {
+        problem: hasProblem,
+        problemImage: hasProblemImage,
+        explanation: hasExplanation,
+        explanationImage: hasExplanationImage,
+        userMessage: hasUserMessage,
+        context: hasContext,
+        knowledgeElements: hasKnowledgeElements,
+      },
+      model: activeConfig.model,
+      temperature: activeConfig.temperature,
+      maxOutputTokens: activeConfig.maxOutputTokens,
+      thinkingBudget: activeConfig.thinkingBudget,
+      responseMimeType: activeConfig.responseMimeType,
+      hasResponseSchema: !!activeConfig.outputSchema,
+      systemPromptLength: SYSTEM_PROMPT_JSON?.length || 0,
+    });
     
     const args: GeminiArgs = {
       systemPrompt: SYSTEM_PROMPT_JSON,
-      model,
-      temperature,
-      maxOutputTokens,
-      thinkingBudget,
-      responseSchema,
-      responseMimeType,
-      problem: currentProblem.content || '이미지 문제',
-      problemImage: currentProblem.imageUrl,
-      explanationImage: currentProblem.explanationImageUrl,
-      explanationText: currentProblem.explanationText,
-      userMessage,
-      context: contextText,
-      knowledgeElements: currentProblem.knowledgeElements?.map(ke => ({
-        id: ke.id,
-        name: ke.name,
-        category: ke.category,
-        cognitiveLevel: ke.cognitiveLevel,
-        weight: ke.weight
-      })),
+      model: activeConfig.model,
+      temperature: activeConfig.temperature,
+      maxOutputTokens: activeConfig.maxOutputTokens,
+      thinkingBudget: activeConfig.thinkingBudget,
+      responseSchema: activeConfig.outputSchema || undefined,
+      responseMimeType: activeConfig.responseMimeType,
+      // ✅ inputSchema에 정의된 필드만 포함
+      problem: hasProblem ? (currentProblem.content || '이미지 문제') : (currentProblem.content || '이미지 문제'), // 필수이지만 hasProblem이 false여도 기본값 제공
+      problemImage: hasProblemImage ? currentProblem.imageUrl : undefined,
+      explanationImage: hasExplanationImage ? currentProblem.explanationImageUrl : undefined,
+      explanationText: hasExplanation ? currentProblem.explanationText : undefined,
+      userMessage: hasUserMessage ? userMessage : userMessage, // 필수
+      context: hasContext ? contextText : undefined,
+      knowledgeElements: hasKnowledgeElements 
+        ? currentProblem.knowledgeElements?.map(ke => ({
+            id: ke.id,
+            name: ke.name,
+            category: ke.category,
+            cognitiveLevel: ke.cognitiveLevel
+          }))
+        : undefined,
       signal: abortRef.current?.signal,
     };
-    return callGemini(args);
-  }, [SYSTEM_PROMPT_JSON, model, temperature, maxOutputTokens, thinkingBudget, responseSchema, responseMimeType, currentProblem, contextText, activeConfigId]);
+    
+    // 🔍 디버깅: API 호출 전 데이터 확인
+    console.log('🔍 [API 호출 전 데이터 확인]', {
+      problemId: currentProblem.id,
+      problemTitle: currentProblem.title,
+      hasProblemImage: !!currentProblem.imageUrl,
+      hasExplanationImage: !!currentProblem.explanationImageUrl,
+      hasExplanationText: !!currentProblem.explanationText,
+      hasKnowledgeElements: !!currentProblem.knowledgeElements,
+      knowledgeElementsCount: currentProblem.knowledgeElements?.length || 0,
+      knowledgeElements: currentProblem.knowledgeElements,
+      hasKeMaps: !!currentProblem.keMaps,
+      keMapsCount: currentProblem.keMaps?.length || 0,
+      systemPromptPreview: SYSTEM_PROMPT_JSON.substring(0, 200) + '...'
+    });
+    
+    // API 호출 로그 생성
+    const logId = uid();
+    const logTimestamp = nowTime();
+    
+    // 로그 저장을 위한 입력 데이터 준비
+    // 문제: 이미지면 파일명 포함된 problem, 텍스트면 내용
+    // 해설: 이미지면 파일명 추출, 텍스트면 explanationText
+    const problemDisplay = hasProblem
+      ? (args.problemImage 
+          ? args.problem  // 이미지 문제일 때는 이미 [이미지 문제: 파일명] 형식
+          : args.problem)
+      : undefined;
+    
+    // 해설 표시: 이미지면 파일명, 텍스트면 내용
+    let explanationDisplay: string | undefined;
+    if (hasExplanationImage && args.explanationImage) {
+      // ✅ explanationText에서 파일명 추출 시도
+      const explanationMatch = args.explanationText?.match(/\[이미지 해설:\s*([^\]]+)\]/);
+      if (explanationMatch) {
+        explanationDisplay = `[이미지 해설: ${explanationMatch[1]}]`;
+      } else {
+        // ✅ explanationText가 없으면 그냥 '[이미지 해설]'로 표시
+        // (문제 파일명을 사용하지 않음 - 이전 버그 수정)
+        explanationDisplay = '[이미지 해설]';
+      }
+    } else if (hasExplanation && args.explanationText) {
+      // 텍스트 해설이면 내용 표시 (파일명 형식이 아닌 경우만)
+      if (!args.explanationText.match(/\[이미지 해설:/)) {
+        explanationDisplay = args.explanationText;
+      }
+    }
+    
+    // ✅ 로그에는 실제로 전송된 필드만 포함
+    const logInput: ApiCallLog['input'] = {
+      problem: hasProblem ? problemDisplay : undefined,
+      problemImage: hasProblemImage ? args.problemImage : undefined,
+      explanationImage: hasExplanationImage ? args.explanationImage : undefined,
+      explanationText: hasExplanation ? args.explanationText : undefined,
+      explanationDisplay: hasExplanation ? explanationDisplay : undefined,
+      userMessage: hasUserMessage ? args.userMessage : '',
+      context: hasContext ? args.context : undefined,
+      knowledgeElements: hasKnowledgeElements ? args.knowledgeElements : undefined
+    };
+    
+    const logPrompt: ApiCallLog['prompt'] = {
+      systemPrompt: args.systemPrompt,
+      model: args.model,
+      temperature: args.temperature,
+      maxOutputTokens: args.maxOutputTokens,
+      thinkingBudget: args.thinkingBudget,
+      responseMimeType: args.responseMimeType,
+      responseSchema: args.responseSchema
+    };
+    
+    try {
+      const diagnostic = await callGemini(args);
+      
+      // 성공 로그 저장
+      const log: ApiCallLog = {
+        id: logId,
+        timestamp: logTimestamp,
+        input: logInput,
+        prompt: logPrompt,
+        output: {
+          parsedDiagnostic: diagnostic
+        }
+      };
+      setApiCallLogs(prev => [log, ...prev].slice(0, 50)); // 최대 50개까지만 저장
+      
+      return diagnostic;
+    } catch (error) {
+      // 에러 로그 저장
+      const log: ApiCallLog = {
+        id: logId,
+        timestamp: logTimestamp,
+        input: logInput,
+        prompt: logPrompt,
+        output: {
+          error: error instanceof Error ? error.message : String(error)
+        }
+      };
+      setApiCallLogs(prev => [log, ...prev].slice(0, 50));
+      
+      throw error;
+    }
+  }, [SYSTEM_PROMPT_JSON, activeConfig, currentProblem, contextText]);
 
   const handleSendMessage = async () => {
     if (!currentInput.trim()) return;
@@ -879,16 +941,28 @@ const MathTutorDiagnostic: React.FC = () => {
     abortRef.current = new AbortController();
 
     setIsLoading(true);
+    const inputText = currentInput.trim(); // 입력값 저장
+    setCurrentInput(''); // 메시지 전송 직후 입력창 비우기
+    
     const studentMessage: Message = {
       id: uid(),
       type: 'student',
-      content: currentInput,
+      content: inputText,
       timestamp: nowTime(),
     };
     setMessages((prev) => [...prev, studentMessage]);
 
     try {
-      const diagnostic = await sendToGemini(currentInput);
+      const diagnostic = await sendToGemini(inputText);
+      
+      // 🔍 디버깅: API 응답 확인
+      console.log('🔍 [API 응답 확인]', {
+        hasKnowledgeDiagnosis: !!diagnostic.knowledge_diagnosis,
+        knowledgeDiagnosisElements: diagnostic.knowledge_diagnosis?.elements?.length || 0,
+        diagnosticKeys: Object.keys(diagnostic),
+        fullDiagnostic: diagnostic
+      });
+      
       setCurrentDiagnostic(diagnostic);
       const aiMessage: Message = {
         id: uid(),
@@ -898,7 +972,6 @@ const MathTutorDiagnostic: React.FC = () => {
         timestamp: nowTime(),
       };
       setMessages((prev) => [...prev, aiMessage]);
-      setCurrentInput('');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '알 수 없는 오류';
       const aiMessage: Message = {
@@ -1008,11 +1081,11 @@ const MathTutorDiagnostic: React.FC = () => {
             WebkitOverflowScrolling: 'touch'
           }}
         >
-          {/* Problem + Diagnostic Cards Container (Left Column on desktop, stacked on mobile) */}
+          {/* Problem Card Container (Left Column on desktop, stacked on mobile) */}
           <div
             className="grid gap-6"
             style={{
-              gridTemplateRows: isDesktop ? '2fr 1fr' : '1.4fr 1fr',
+              gridTemplateRows: '1fr',  // ✅ 진단상태 카드 제거로 단일 행으로 변경
               height: '100%',
               minHeight: 0,
               overflow: 'hidden',
@@ -1036,7 +1109,7 @@ const MathTutorDiagnostic: React.FC = () => {
               >
               <div className="flex justify-between items-center">
                 <h2 className="text-base font-semibold text-slate-800">
-                  문제/해설
+                  문제
                 </h2>
                 <div className="flex gap-2">
                   <button
@@ -1060,60 +1133,24 @@ const MathTutorDiagnostic: React.FC = () => {
               >
               {/* Current Problem Display */}
               {currentProblem && !showProblemManager && (
-                <div className="bg-gradient-to-br from-slate-50 to-blue-50/50 p-6 rounded-lg border border-slate-200/50">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-semibold text-slate-800 text-base">{currentProblem.title}</h3>
-                    <div className="flex gap-2 flex-wrap">
-                      {currentProblem.grade && (
-                        <span className="px-3 py-1.5 bg-blue-100/80 text-blue-700 rounded-lg text-xs font-medium border border-blue-200/50">
-                          {currentProblem.grade}
-                        </span>
-                      )}
-                      {currentProblem.unit && (
-                        <span className="px-3 py-1.5 bg-indigo-100/80 text-indigo-700 rounded-lg text-xs font-medium border border-indigo-200/50">
-                          {currentProblem.unit}
-                        </span>
-                      )}
+                <div 
+                  className="bg-gradient-to-br from-slate-50 to-blue-50/50 p-6 rounded-lg border border-slate-200/50 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => setShowProblemDetail(true)}
+                  title="클릭하여 상세 정보 보기"
+                >
+                  {/* ✅ 문제 이미지만 표시 */}
+                  {currentProblem.imageUrl && (
+                    <img
+                      src={currentProblem.imageUrl}
+                      alt="문제 이미지"
+                      className="w-full max-h-[600px] object-contain border border-gray-200 rounded p-2"
+                    />
+                  )}
+                  {!currentProblem.imageUrl && (
+                    <div className="text-center text-slate-500 py-8">
+                      문제 이미지가 없습니다.
                     </div>
-                  </div>
-                  <div className="space-y-3">
-                    {currentProblem.imageUrl && (
-                      <div>
-                        <h4 className="text-sm font-medium text-slate-700 mb-2">문제</h4>
-                        <img
-                          src={currentProblem.imageUrl}
-                          alt="문제 이미지"
-                          className="w-full max-h-[600px] object-contain border border-gray-200 rounded p-2"
-                        />
-                        {currentProblem.content && !currentProblem.content.startsWith('[이미지 문제:') && (
-                          <p className="text-slate-600 text-xs sm:text-sm mt-2">{currentProblem.content}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {!currentProblem.imageUrl && currentProblem.content && (
-                      <div>
-                        <h4 className="text-sm font-medium text-slate-700 mb-2">문제</h4>
-                        <p className="text-slate-800 whitespace-pre-wrap text-xs sm:text-sm">{currentProblem.content}</p>
-                      </div>
-                    )}
-
-                    {(currentProblem.explanationImageUrl || currentProblem.explanationText) && (
-                      <div>
-                        <h4 className="text-sm font-medium text-slate-700 mb-2">해설</h4>
-                        {currentProblem.explanationImageUrl && (
-                          <img
-                            src={currentProblem.explanationImageUrl}
-                            alt="해설 이미지"
-                            className="w-full max-h-[600px] object-contain border border-orange-200 rounded p-2 bg-orange-50 mb-2"
-                          />
-                        )}
-                        {currentProblem.explanationText && (
-                          <p className="text-slate-800 whitespace-pre-wrap text-xs sm:text-sm bg-orange-50/80 p-3 rounded-lg">{currentProblem.explanationText}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -1160,115 +1197,6 @@ const MathTutorDiagnostic: React.FC = () => {
               </div>
             </div>
 
-            {/* Diagnostic Status Card - Bottom Left */}
-            <div
-              className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-300/80"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '100%',
-                minHeight: 0,
-                WebkitOverflowScrolling: 'touch'
-              }}
-            >
-              <div
-                className="px-4 py-3 border-b border-slate-200/50"
-                style={{ flex: 'none' }}
-              >
-              <div className="flex justify-between items-center">
-                <h2 className="text-base font-semibold text-slate-800">
-                  진단 상태
-                </h2>
-                <div></div>
-              </div>
-              </div>
-
-              <div
-                className="p-4 sm:p-5"
-                style={{
-                  flex: 1,
-                  minHeight: 0,
-                  overflow: 'auto',
-                  WebkitOverflowScrolling: 'touch'
-                }}
-              >
-              {currentDiagnostic ? (
-                <div className="border-2 border-purple-200 rounded-lg p-4 sm:p-5 bg-purple-50">
-                  <h3 className="font-semibold text-black mb-3 flex items-center gap-2">⚡ 현재 진단 상태</h3>
-                  <div className="mb-3">{stagePill(currentDiagnostic.recommended_stage)}</div>
-
-                  <div className="bg-white rounded p-3 mb-3">
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div className="text-black">문제 이해도: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.problem_understanding}</span></div>
-                      <div className="text-black">개념 지식: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.concept_knowledge}</span></div>
-                      <div className="text-black">오류 패턴: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.error_pattern}</span></div>
-                      <div className="text-black">자신감: <span className="font-medium text-purple-700">{currentDiagnostic.diagnosis.confidence_level}</span></div>
-                    </div>
-                  </div>
-
-                  {/* 지식요소 진단 결과 */}
-                  {currentDiagnostic.knowledge_diagnosis && currentDiagnostic.knowledge_diagnosis.elements && currentDiagnostic.knowledge_diagnosis.elements.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-sm font-medium text-black mb-2">지식 요소 숙련도</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {currentDiagnostic.knowledge_diagnosis.elements.map((element, idx) => {
-                          const masteryColor = element.mastery === 'high' 
-                            ? 'bg-green-100 text-green-800 border-green-300' 
-                            : element.mastery === 'medium'
-                            ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
-                            : 'bg-red-100 text-red-800 border-red-300';
-                          const masteryIcon = element.mastery === 'high' ? '✅' : element.mastery === 'medium' ? '⚠️' : '⚠️';
-                          
-                          // 지식요소 이름 찾기
-                          const keName = currentProblem?.knowledgeElements?.find(ke => ke.id === element.ke_id)?.name || element.ke_id;
-                          
-                          return (
-                            <div
-                              key={idx}
-                              className={`px-2 py-1 rounded-lg text-xs font-medium border ${masteryColor} cursor-pointer hover:opacity-80 transition-opacity`}
-                              title={`${keName}: ${element.evidence}`}
-                            >
-                              {masteryIcon} {keName}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {currentDiagnostic.knowledge_diagnosis.overall_mastery_score !== undefined && (
-                        <div className="mt-2 text-xs text-gray-600">
-                          전체 숙련도: <span className="font-medium">{currentDiagnostic.knowledge_diagnosis.overall_mastery_score}점</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 마이크로 평가 제안 */}
-                  {currentDiagnostic.micro_assessments && currentDiagnostic.micro_assessments.length > 0 && (
-                    <div className="mb-3">
-                      <h4 className="text-sm font-medium text-black mb-2">추가 확인 문제</h4>
-                      <div className="space-y-2">
-                        {currentDiagnostic.micro_assessments.map((assessment, idx) => {
-                          const keName = currentProblem?.knowledgeElements?.find(ke => ke.id === assessment.ke_id)?.name || assessment.ke_id;
-                          return (
-                            <div key={idx} className="bg-blue-50 border border-blue-200 rounded p-2 text-xs">
-                              <div className="font-medium text-blue-900 mb-1">{keName}</div>
-                              <div className="text-blue-700">{assessment.prompt}</div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              ) : (
-                <div className="text-center text-slate-500 py-8">
-                  학생이 메시지를 보내면
-                  <br />
-                  진단 결과가 여기에 표시됩니다.
-                </div>
-              )}
-              </div>
-            </div>
           </div>
 
           {/* Chat Panel (Right Column on desktop, bottom on mobile) */}
@@ -1296,27 +1224,77 @@ const MathTutorDiagnostic: React.FC = () => {
                 style={{ flex: 'none' }}
               >
             <div className="flex justify-between items-center gap-3">
-              <h2 className="text-base font-semibold text-slate-800">
-                AI 대화
-              </h2>
               <div className="flex items-center gap-2">
-                {llmConfigs.length > 0 && (
+                {/* 탭 버튼 */}
+                <button
+                  onClick={() => setActiveTab('chat')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'chat'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  대화
+                </button>
+                <button
+                  onClick={() => setActiveTab('logs')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'logs'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  호출 로그 ({apiCallLogs.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('diagnostic')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                    activeTab === 'diagnostic'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  진단 상태
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* ✅ LLM 설정 선택 (로딩/에러 상태 표시) */}
+                {isConfigLoading ? (
+                  <div className="px-3 py-2 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg">
+                    설정 불러오는 중...
+                  </div>
+                ) : configError ? (
+                  <div className="px-3 py-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg" title={configError}>
+                    AI 연동 설정 필요
+                  </div>
+                ) : activeLLMConfigs.length > 0 ? (
                   <select
-                    value={activeConfigId || ''}
+                    value={activeConfig?.id || ''}
                     onChange={(e) => handleConfigChange(e.target.value)}
                     className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200 bg-white min-w-[180px] focus:outline-none focus:ring-2 focus:ring-blue-500"
                     style={{ maxWidth: '200px' }}
+                    title={activeConfig?.name || '설정 선택'}
                   >
-                    {llmConfigs.map((config) => (
+                    {activeLLMConfigs.map((config) => (
                       <option key={config.id} value={config.id}>
-                        {config.name} {config.isActive ? '(활성)' : ''}
+                        {config.name}
                       </option>
                     ))}
                   </select>
+                ) : llmConfigs.length > 0 ? (
+                  <div className="px-3 py-2 text-xs text-yellow-600 bg-yellow-50 border border-yellow-200 rounded-lg" title="활성화된 설정이 없습니다. Admin 페이지에서 설정을 활성화해주세요.">
+                    활성화된 설정 없음
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg">
+                    AI 연동 설정 필요
+                  </div>
                 )}
-                <button onClick={clearChat} className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200">
-                  초기화
-                </button>
+                {activeTab === 'chat' && (
+                  <button onClick={clearChat} className="px-3 py-2 text-slate-600 hover:text-slate-800 text-sm font-medium rounded-lg hover:bg-slate-100 transition-all duration-200 border border-slate-200">
+                    초기화
+                  </button>
+                )}
               </div>
               </div>
               </div>
@@ -1330,6 +1308,8 @@ const MathTutorDiagnostic: React.FC = () => {
                   WebkitOverflowScrolling: 'touch'
                 }}
               >
+            {activeTab === 'chat' ? (
+              <>
             {messages.length === 0 && <div className="text-center text-slate-500 py-8 font-medium">학생의 첫 메시지를 기다리고 있습니다...</div>}
 
             {messages.map((message) => (
@@ -1370,8 +1350,52 @@ const MathTutorDiagnostic: React.FC = () => {
                         진단내용 보기
                       </button>
                       {showDiagnosticDetail[message.id] && (
-                        <div className="mt-3 p-3 bg-blue-50/80 border border-blue-200/60 rounded-lg backdrop-blur-sm">
-                          <p className="text-xs text-blue-800 whitespace-pre-wrap font-medium leading-relaxed">{message.diagnostic.stage_reason}</p>
+                        <div className="mt-3 p-4 bg-blue-50/80 border border-blue-200/60 rounded-lg backdrop-blur-sm space-y-3">
+                          {/* 현재 단계 */}
+                          {message.diagnostic.recommended_stage && (
+                            <div>
+                              <div className="text-xs font-semibold text-blue-900 mb-1">권장 단계</div>
+                              <div className="mb-2">{stagePill(message.diagnostic.recommended_stage)}</div>
+                            </div>
+                          )}
+                          
+                          {/* 단계 추천 이유 */}
+                          {message.diagnostic.stage_reason && (
+                            <div>
+                              <div className="text-xs font-semibold text-blue-900 mb-1">추천 이유</div>
+                              <p className="text-xs text-blue-800 whitespace-pre-wrap leading-relaxed">{message.diagnostic.stage_reason}</p>
+                            </div>
+                          )}
+                          
+                          {/* 진단 정보 */}
+                          {message.diagnostic.diagnosis && (
+                            <div>
+                              <div className="text-xs font-semibold text-blue-900 mb-2">학습 상태 진단</div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-white/60 rounded p-2">
+                                  <div className="text-gray-600">문제 이해도</div>
+                                  <div className="font-semibold text-blue-900">{message.diagnostic.diagnosis.problem_understanding === 'high' ? '높음' : message.diagnostic.diagnosis.problem_understanding === 'medium' ? '보통' : '낮음'}</div>
+                                </div>
+                                <div className="bg-white/60 rounded p-2">
+                                  <div className="text-gray-600">개념 지식</div>
+                                  <div className="font-semibold text-blue-900">{message.diagnostic.diagnosis.concept_knowledge === 'high' ? '높음' : message.diagnostic.diagnosis.concept_knowledge === 'medium' ? '보통' : '낮음'}</div>
+                                </div>
+                                <div className="bg-white/60 rounded p-2">
+                                  <div className="text-gray-600">오류 패턴</div>
+                                  <div className="font-semibold text-blue-900">
+                                    {message.diagnostic.diagnosis.error_pattern === 'none' ? '없음' :
+                                     message.diagnostic.diagnosis.error_pattern === 'calculation_error' ? '계산 오류' :
+                                     message.diagnostic.diagnosis.error_pattern === 'logical_error' ? '논리 오류' :
+                                     message.diagnostic.diagnosis.error_pattern === 'concept_confusion' ? '개념 혼동' : '접근 오류'}
+                                  </div>
+                                </div>
+                                <div className="bg-white/60 rounded p-2">
+                                  <div className="text-gray-600">자신감</div>
+                                  <div className="font-semibold text-blue-900">{message.diagnostic.diagnosis.confidence_level === 'high' ? '높음' : message.diagnostic.diagnosis.confidence_level === 'medium' ? '보통' : '낮음'}</div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1408,39 +1432,531 @@ const MathTutorDiagnostic: React.FC = () => {
                 </div>
               </div>
             )}
+              </>
+            ) : activeTab === 'logs' ? (
+              <div className="space-y-3">
+                {apiCallLogs.length === 0 ? (
+                  <div className="text-center text-slate-500 py-8">
+                    호출 로그가 없습니다.
+                    <br />
+                    AI와 대화를 시작하면 로그가 표시됩니다.
+                  </div>
+                ) : (
+                  apiCallLogs.map((log) => (
+                    <div key={log.id} className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+                      <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+                        <div className="text-xs font-semibold text-gray-700">{log.timestamp}</div>
+                        {log.output.error ? (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs">에러</span>
+                        ) : (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">성공</span>
+                        )}
+                      </div>
+                      
+                      {/* 인풋 */}
+                      <div>
+                        <div className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                          <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                          인풋
+                        </div>
+                        <div className="bg-blue-50 rounded p-3 text-xs space-y-2">
+                          {/* ✅ 선택된 필드만 표시 */}
+                          {(log.input.problem !== undefined || log.input.problemImage !== undefined) && (
+                            <div>
+                              <span className="font-medium text-gray-700">문제:</span>
+                              {log.input.problemImage ? (
+                                <div className="mt-2">
+                                  <img 
+                                    src={log.input.problemImage} 
+                                    alt="문제 이미지" 
+                                    className="max-w-full max-h-60 rounded border border-gray-300"
+                                  />
+                                </div>
+                              ) : log.input.problem ? (
+                                <div className="mt-1 text-gray-600 whitespace-pre-wrap">
+                                  {log.input.problem}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                          {log.input.userMessage && (
+                            <div>
+                              <span className="font-medium text-gray-700">학생 메시지:</span>
+                              <div className="mt-1 text-gray-600">{log.input.userMessage}</div>
+                            </div>
+                          )}
+                          {(log.input.explanationDisplay !== undefined || log.input.explanationImage !== undefined) && (
+                            <div>
+                              <span className="font-medium text-gray-700">해설:</span>
+                              {log.input.explanationImage ? (
+                                <div className="mt-2">
+                                  <img 
+                                    src={log.input.explanationImage} 
+                                    alt="해설 이미지" 
+                                    className="max-w-full max-h-60 rounded border border-gray-300"
+                                  />
+                                </div>
+                              ) : log.input.explanationDisplay ? (
+                                <div className="mt-1 text-gray-600 whitespace-pre-wrap">
+                                  {log.input.explanationDisplay}
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                          {log.input.knowledgeElements && log.input.knowledgeElements.length > 0 && (
+                            <div>
+                              <span className="font-medium text-gray-700">지식요소:</span>
+                              <div className="mt-1 text-gray-600">
+                                {log.input.knowledgeElements.map((ke, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    - {ke.name} ({ke.category}, {ke.cognitiveLevel})
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {log.input.context !== undefined && (
+                            <div>
+                              <span className="font-medium text-gray-700">컨텍스트:</span>
+                              <div className="mt-1 text-gray-600 whitespace-pre-wrap text-xs">{log.input.context}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* 프롬프트 */}
+                      <div>
+                        <div className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                          <div className="w-1 h-4 bg-purple-500 rounded"></div>
+                          프롬프트
+                        </div>
+                        <div className="bg-purple-50 rounded p-3 text-xs space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <span className="font-medium text-gray-700">모델:</span>
+                              <span className="ml-2 text-gray-600">{log.prompt.model}</span>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-700">Temperature:</span>
+                              <span className="ml-2 text-gray-600">{log.prompt.temperature}</span>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-700">Max Tokens:</span>
+                              <span className="ml-2 text-gray-600">{log.prompt.maxOutputTokens}</span>
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-700">Thinking Budget:</span>
+                              <span className="ml-2 text-gray-600">{log.prompt.thinkingBudget}</span>
+                            </div>
+                          </div>
+                          <div>
+                            <span className="font-medium text-gray-700">시스템 프롬프트:</span>
+                            <div className="mt-1 bg-white rounded p-2 text-gray-600 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                              {log.prompt.systemPrompt}
+                            </div>
+                          </div>
+                          {log.prompt.responseSchema !== undefined && log.prompt.responseSchema !== null && (
+                            <div>
+                              <span className="font-medium text-gray-700">응답 스키마:</span>
+                              <div className="mt-1 bg-white rounded p-2 text-gray-600 max-h-40 overflow-y-auto">
+                                <pre className="text-xs">{JSON.stringify(log.prompt.responseSchema, null, 2)}</pre>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* 아웃풋 */}
+                      <div>
+                        <div className="text-xs font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                          <div className="w-1 h-4 bg-green-500 rounded"></div>
+                          아웃풋
+                        </div>
+                        <div className="bg-green-50 rounded p-3 text-xs">
+                          {log.output.error ? (
+                            <div className="text-red-700 font-medium">{log.output.error}</div>
+                          ) : log.output.parsedDiagnostic ? (
+                            <div className="space-y-2">
+                              <div className="bg-white rounded p-2 max-h-60 overflow-y-auto">
+                                <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(log.output.parsedDiagnostic, null, 2)}</pre>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-gray-500">응답 데이터 없음</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : activeTab === 'diagnostic' ? (
+              <div>
+                {currentDiagnostic ? (
+                  <div className="bg-white rounded-lg p-4 sm:p-5">
+                    {/* 리포트 헤더 */}
+                    <div className="border-b border-gray-200 pb-3 mb-4">
+                      <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                        <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                        지식요소 진단 리포트
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">학생의 지식요소별 숙련도 분석 결과</p>
+                    </div>
+
+                    {/* 지식요소 진단 결과 */}
+                    {currentDiagnostic.knowledge_diagnosis ? (
+                      currentDiagnostic.knowledge_diagnosis.elements && currentDiagnostic.knowledge_diagnosis.elements.length > 0 ? (
+                        <>
+                          {/* 전체 숙련도 요약 */}
+                          {currentDiagnostic.knowledge_diagnosis.overall_mastery_score !== undefined && (
+                            <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <div className="text-xs text-gray-600 mb-1">전체 숙련도 점수</div>
+                                  <div className="text-2xl font-bold text-blue-900">
+                                    {currentDiagnostic.knowledge_diagnosis.overall_mastery_score}<span className="text-sm font-normal text-gray-600">/100</span>
+                                  </div>
+                                </div>
+                                {currentDiagnostic.knowledge_diagnosis.uncertainty && (
+                                  <div className="text-right">
+                                    <div className="text-xs text-gray-600 mb-1">신뢰도</div>
+                                    <div className={`text-sm font-semibold ${
+                                      currentDiagnostic.knowledge_diagnosis.uncertainty === 'high' ? 'text-red-600' :
+                                      currentDiagnostic.knowledge_diagnosis.uncertainty === 'medium' ? 'text-yellow-600' : 'text-green-600'
+                                    }`}>
+                                      {currentDiagnostic.knowledge_diagnosis.uncertainty === 'high' ? '낮음' :
+                                       currentDiagnostic.knowledge_diagnosis.uncertainty === 'medium' ? '보통' : '높음'}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 지식요소별 상세 리포트 */}
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                              <div className="w-1 h-4 bg-blue-500 rounded"></div>
+                              지식요소별 숙련도 분석
+                            </h4>
+                            <div className="space-y-3">
+                              {currentDiagnostic.knowledge_diagnosis.elements.map((element, idx) => {
+                                const masteryColor = element.mastery === 'high' 
+                                  ? 'bg-green-50 border-green-200' 
+                                  : element.mastery === 'medium'
+                                  ? 'bg-yellow-50 border-yellow-200'
+                                  : 'bg-red-50 border-red-200';
+                                const masteryBadgeColor = element.mastery === 'high' 
+                                  ? 'bg-green-500 text-white' 
+                                  : element.mastery === 'medium'
+                                  ? 'bg-yellow-500 text-white'
+                                  : 'bg-red-500 text-white';
+                                
+                                // 지식요소 이름 찾기
+                                const ke = currentProblem?.knowledgeElements?.find(ke => ke.id === element.ke_id);
+                                const keName = ke?.name || element.ke_id;
+                                
+                                // 문제-지식요소 매핑 정보 찾기
+                                const keMap = currentProblem?.keMaps?.find(map => map.keId === element.ke_id);
+                                
+                                return (
+                                  <div
+                                    key={idx}
+                                    className={`border-l-4 rounded-r-lg p-3 ${masteryColor} hover:shadow-sm transition-shadow`}
+                                    style={{ borderLeftColor: element.mastery === 'high' ? '#10b981' : element.mastery === 'medium' ? '#eab308' : '#ef4444' }}
+                                  >
+                                    <div className="flex items-start justify-between mb-2">
+                                      <div className="flex-1">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <span className="text-sm font-semibold text-gray-900">{keName}</span>
+                                          <span className={`text-xs px-2 py-0.5 rounded font-medium ${masteryBadgeColor}`}>
+                                            {element.mastery === 'high' ? '높음' : element.mastery === 'medium' ? '보통' : '낮음'}
+                                          </span>
+                                        </div>
+                                        {keMap && (
+                                          <div className="text-xs text-gray-500 mb-1">
+                                            필요 레벨: {keMap.requiredLevel} | 가중치: {keMap.weight}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="text-xs text-gray-700 space-y-1.5">
+                                      <div>
+                                        <span className="font-semibold text-gray-900">근거:</span>
+                                        <span className="ml-2">{element.evidence}</span>
+                                      </div>
+                                      {element.next_action && (
+                                        <div>
+                                          <span className="font-semibold text-blue-700">권장 행동:</span>
+                                          <span className="ml-2 text-blue-600">{element.next_action}</span>
+                                        </div>
+                                      )}
+                                      {ke && (
+                                        <div className="flex gap-2 mt-2">
+                                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
+                                            {ke.category === 'concept' ? '개념' : 
+                                             ke.category === 'principle' ? '원리' : 
+                                             ke.category === 'procedure' ? '절차' : '통합'}
+                                          </span>
+                                          <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">
+                                            {ke.cognitiveLevel === 'remember' ? '기억' :
+                                             ke.cognitiveLevel === 'understand' ? '이해' :
+                                             ke.cognitiveLevel === 'apply' ? '적용' :
+                                             ke.cognitiveLevel === 'analyze' ? '분석' :
+                                             ke.cognitiveLevel === 'synthesize' ? '종합' : '평가'}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          {/* 마이크로 평가 제안 */}
+                          {currentDiagnostic.micro_assessments && currentDiagnostic.micro_assessments.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-200">
+                              <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                <div className="w-1 h-4 bg-indigo-500 rounded"></div>
+                                추가 확인 문제 제안
+                              </h4>
+                              <div className="space-y-2">
+                                {currentDiagnostic.micro_assessments.map((assessment, idx) => {
+                                  const keName = currentProblem?.knowledgeElements?.find(ke => ke.id === assessment.ke_id)?.name || assessment.ke_id;
+                                  return (
+                                    <div key={idx} className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs">
+                                      <div className="font-semibold text-indigo-900 mb-1">{keName}</div>
+                                      <div className="text-indigo-700">{assessment.prompt}</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-center text-gray-500 py-8 text-sm">
+                          지식요소 진단 결과가 없습니다.
+                        </div>
+                      )
+                    ) : (
+                      <div className="text-center text-gray-500 py-8 text-sm">
+                        지식요소 진단이 아직 수행되지 않았습니다.
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-500 py-8">
+                    진단 정보가 없습니다.
+                    <br />
+                    학생이 메시지를 보내면 진단 결과가 여기에 표시됩니다.
+                  </div>
+                )}
+              </div>
+            ) : null}
               </div>
 
-              <div
-                className="p-4 sm:p-5 border-t border-slate-200/60 bg-white/70 backdrop-blur-sm rounded-b-2xl"
-                style={{ flex: 'none' }}
-              >
-            <div className="flex gap-3">
-              <textarea
-                value={currentInput}
-                onChange={(e) => setCurrentInput(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder="학생 메시지를 입력하세요..."
-                className="flex-1 p-4 border border-slate-300/60 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-slate-900 text-sm sm:text-base bg-white/80 backdrop-blur-sm  transition-all duration-200"
-                rows={2}
-                disabled={isLoading}
-                aria-label="학생 메시지 입력"
-              />
-              <button
-                onClick={handleSendMessage}
-                disabled={!currentInput.trim() || isLoading}
-                className="px-5 py-3 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-500 disabled:cursor-not-allowed text-sm sm:text-base font-medium transition-all duration-200"
-                aria-label="메시지 전송"
-              >
-                전송
-              </button>
-              </div>
-              </div>
+              {activeTab === 'chat' && (
+                <div
+                  className="p-4 sm:p-5 border-t border-slate-200/60 bg-white/70 backdrop-blur-sm rounded-b-2xl"
+                  style={{ flex: 'none' }}
+                >
+                  <div className="flex gap-3">
+                    <textarea
+                      value={currentInput}
+                      onChange={(e) => setCurrentInput(e.target.value)}
+                      onKeyDown={handleKeyPress}
+                      placeholder="학생 메시지를 입력하세요..."
+                      className="flex-1 p-4 border border-slate-300/60 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 text-slate-900 text-sm sm:text-base bg-white/80 backdrop-blur-sm  transition-all duration-200"
+                      rows={2}
+                      disabled={isLoading}
+                      aria-label="학생 메시지 입력"
+                    />
+                    <button
+                      onClick={handleSendMessage}
+                      disabled={!currentInput.trim() || isLoading || !activeConfig || isConfigLoading}
+                      className="px-5 py-3 bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-lg hover:from-blue-600 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 disabled:text-slate-500 disabled:cursor-not-allowed text-sm sm:text-base font-medium transition-all duration-200"
+                      aria-label="메시지 전송"
+                      title={!activeConfig || isConfigLoading ? 'AI 연동 설정을 불러오는 중입니다...' : ''}
+                    >
+                      전송
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* 시스템 프롬프트 UI 섹션 제거 - 프롬프트 내용은 코드에 유지 */}
       </div>
+
+      {/* 문제 상세 정보 모달 */}
+      {showProblemDetail && currentProblem && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowProblemDetail(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 모달 헤더 */}
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+              <h2 className="text-xl font-bold text-gray-900">문제 상세 정보</h2>
+              <button
+                onClick={() => setShowProblemDetail(false)}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* 모달 내용 */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* 문제 정보 */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <div className="w-1 h-5 bg-blue-500 rounded"></div>
+                  문제
+                </h3>
+                {currentProblem.imageUrl && (
+                  <div className="mb-4">
+                    <img
+                      src={currentProblem.imageUrl}
+                      alt="문제 이미지"
+                      className="w-full max-h-[500px] object-contain border border-gray-200 rounded p-2 bg-gray-50"
+                    />
+                  </div>
+                )}
+                {currentProblem.content && !currentProblem.content.startsWith('[이미지 문제:') && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p className="text-gray-800 whitespace-pre-wrap">{currentProblem.content}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* 해설 */}
+              {(currentProblem.explanationImageUrl || currentProblem.explanationText) && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <div className="w-1 h-5 bg-orange-500 rounded"></div>
+                    해설
+                  </h3>
+                  {currentProblem.explanationImageUrl && (
+                    <div className="mb-3">
+                      <img
+                        src={currentProblem.explanationImageUrl}
+                        alt="해설 이미지"
+                        className="w-full max-h-[500px] object-contain border border-orange-200 rounded p-2 bg-orange-50"
+                      />
+                    </div>
+                  )}
+                  {currentProblem.explanationText && !currentProblem.explanationText.startsWith('[이미지 해설:') && (
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                      <p className="text-gray-800 whitespace-pre-wrap">{currentProblem.explanationText}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 비고 */}
+              {currentProblem.notes && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <div className="w-1 h-5 bg-purple-500 rounded"></div>
+                    비고
+                  </h3>
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                    <p className="text-gray-800 whitespace-pre-wrap">{currentProblem.notes}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 관련 지식 요소 */}
+              {currentProblem.knowledgeElements && currentProblem.knowledgeElements.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                    <div className="w-1 h-5 bg-green-500 rounded"></div>
+                    관련 지식 요소
+                  </h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse bg-white border border-gray-200 rounded-lg">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="border border-gray-200 px-4 py-2 text-left text-sm font-semibold text-gray-700">구분</th>
+                          <th className="border border-gray-200 px-4 py-2 text-left text-sm font-semibold text-gray-700">지식요소</th>
+                          <th className="border border-gray-200 px-4 py-2 text-left text-sm font-semibold text-gray-700">내용 설명</th>
+                          <th className="border border-gray-200 px-4 py-2 text-left text-sm font-semibold text-gray-700">출처(성취기준)</th>
+                          <th className="border border-gray-200 px-4 py-2 text-left text-sm font-semibold text-gray-700">인지 수준</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {currentProblem.knowledgeElements.map((ke, idx) => {
+                          const keMap = currentProblem.keMaps?.find(map => map.keId === ke.id);
+                          return (
+                            <tr key={ke.id || idx} className="hover:bg-gray-50">
+                              <td className="border border-gray-200 px-4 py-2 text-sm text-gray-700">
+                                {ke.category === 'concept' ? '개념' : 
+                                 ke.category === 'principle' ? '원리' : 
+                                 ke.category === 'procedure' ? '절차' : '통합'}
+                              </td>
+                              <td className="border border-gray-200 px-4 py-2 text-sm font-medium text-gray-900">{ke.name}</td>
+                              <td className="border border-gray-200 px-4 py-2 text-sm text-gray-700">{ke.description || '-'}</td>
+                              <td className="border border-gray-200 px-4 py-2 text-sm text-gray-700">{ke.source || '-'}</td>
+                              <td className="border border-gray-200 px-4 py-2 text-sm text-gray-700">
+                                {ke.cognitiveLevel === 'remember' ? '기억' :
+                                 ke.cognitiveLevel === 'understand' ? '이해' :
+                                 ke.cognitiveLevel === 'apply' ? '적용' :
+                                 ke.cognitiveLevel === 'analyze' ? '분석' :
+                                 ke.cognitiveLevel === 'synthesize' ? '종합' : '평가'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* 메타 정보 */}
+              <div className="pt-4 border-t border-gray-200">
+                <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
+                  {currentProblem.grade && (
+                    <div>
+                      <span className="font-semibold text-gray-700">학년:</span> {currentProblem.grade}
+                    </div>
+                  )}
+                  {currentProblem.unit && (
+                    <div>
+                      <span className="font-semibold text-gray-700">태그명:</span> {currentProblem.unit}
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold text-gray-700">생성:</span> {currentProblem.createdAt}
+                  </div>
+                  <div>
+                    <span className="font-semibold text-gray-700">수정:</span> {currentProblem.updatedAt}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 모달 푸터 */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setShowProblemDetail(false)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -10,7 +10,8 @@ import {
   CheckCircle,
   Info,
   Edit3,
-  Maximize2
+  Maximize2,
+  Check
 } from 'lucide-react';
 
 const SYSTEM_PROMPT_BASE = `당신은 폴리아(Polya)의 4단계 문제해결 접근법(① 문제 이해하기, ② 계획 세우기, ③ 계획 실행하기, ④ 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하는 교육용 AI 튜터입니다.
@@ -31,15 +32,15 @@ const SYSTEM_PROMPT_BASE = `당신은 폴리아(Polya)의 4단계 문제해결 �
 
 [
 
-  {"id":"KE1","이름":"삼각비의 정의","구분":"개념","인지수준":"이해","가중치":0.2},
+  {"id":"KE1","이름":"삼각비의 정의","구분":"개념","인지수준":"이해"},
 
-  {"id":"KE2","이름":"특수각의 삼각비 값","구분":"개념","인지수준":"기억","가중치":0.25},
+  {"id":"KE2","이름":"특수각의 삼각비 값","구분":"개념","인지수준":"기억"},
 
-  {"id":"KE3","이름":"삼각비의 관계식","구분":"원리","인지수준":"적용","가중치":0.25},
+  {"id":"KE3","이름":"삼각비의 관계식","구분":"원리","인지수준":"적용"},
 
-  {"id":"KE4","이름":"범위 고려","구분":"절차","인지수준":"분석","가중치":0.2},
+  {"id":"KE4","이름":"범위 고려","구분":"절차","인지수준":"분석"},
 
-  {"id":"KE5","이름":"문제 해결 종합","구분":"통합","인지수준":"종합","가중치":0.1}
+  {"id":"KE5","이름":"문제 해결 종합","구분":"통합","인지수준":"종합"}
 
 ]
 
@@ -198,7 +199,7 @@ next_action: 해당 요소 보강을 위한 구체 행동 제안 (예: "특수�
 학생에게는 맞춤형 대화형 학습 경험을 제공한다.`;
 
 // 기본 입력 스키마
-const DEFAULT_INPUT_SCHEMA = {
+export const DEFAULT_INPUT_SCHEMA = {
   type: "object",
   properties: {
     problem: {
@@ -217,6 +218,34 @@ const DEFAULT_INPUT_SCHEMA = {
       type: "string",
       description: "이전 대화 요약, 학습 스타일/오류 패턴 등",
       default: ""
+    },
+    knowledgeElements: {
+      type: "array",
+      description: "문제와 관련된 지식요소 목록",
+      items: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "지식요소 ID"
+          },
+          name: {
+            type: "string",
+            description: "지식요소 이름"
+          },
+          category: {
+            type: "string",
+            enum: ["concept", "principle", "procedure", "integration"],
+            description: "지식요소 구분 (개념/원리/절차/통합)"
+          },
+          cognitiveLevel: {
+            type: "string",
+            enum: ["remember", "understand", "apply", "analyze", "synthesize", "evaluate"],
+            description: "인지 수준 (기억/이해/적용/분석/종합/평가)"
+          }
+        },
+        required: ["id", "name", "category", "cognitiveLevel"]
+      }
     }
   },
   required: ["userMessage"],
@@ -322,6 +351,11 @@ const AIManagement = () => {
   const [showInputSchema, setShowInputSchema] = useState(false);
   const [showOutputSchema, setShowOutputSchema] = useState(false);
   
+  // ✅ 입력 필드 선택 상태
+  const [selectedInputFields, setSelectedInputFields] = useState<Set<string>>(
+    new Set(['problem', 'problemImage', 'explanationText', 'explanationImage', 'userMessage', 'context', 'knowledgeElements'])
+  );
+  
   // 프롬프트 정보
   const [systemPrompt, setSystemPrompt] = useState('');
   const [userPrompt, setUserPrompt] = useState('');
@@ -355,54 +389,36 @@ const AIManagement = () => {
     const storedConfigs = localStorage.getItem('math_tutor_llm_configs');
     const activeConfigId = localStorage.getItem('math_tutor_active_llm_config_id');
 
+    let parsedConfigs: LLMConfig[] = [];
+
     if (storedConfigs) {
       try {
-        const parsedConfigs = JSON.parse(storedConfigs) as LLMConfig[];
-        setConfigs(parsedConfigs);
-
-        if (activeConfigId) {
-          const activeConfig = parsedConfigs.find(c => c.id === activeConfigId);
-          if (activeConfig) {
-            loadConfig(activeConfig);
-            return;
-          }
-        }
-
-        const activeConfig = parsedConfigs.find(c => c.isActive) || parsedConfigs[0];
-        if (activeConfig) {
-          loadConfig(activeConfig);
-          localStorage.setItem('math_tutor_active_llm_config_id', activeConfig.id);
-        }
+        parsedConfigs = JSON.parse(storedConfigs) as LLMConfig[];
       } catch (e) {
         console.error('Failed to load configs:', e);
       }
     }
 
-    // 기본 설정이 없으면 생성
-    if (!storedConfigs || (storedConfigs && JSON.parse(storedConfigs).length === 0)) {
-      const defaultConfig: LLMConfig = {
-        id: uid(),
-        name: '기본 LLM 설정',
-        description: '지식요소 진단 통합형 프롬프트',
-        version: 'v2.0.0',
-        systemPrompt: SYSTEM_PROMPT_BASE,
-        userPrompt: '',
-        inputSchema: DEFAULT_INPUT_SCHEMA,
-        outputSchema: DEFAULT_RESPONSE_SCHEMA,
-        responseMimeType: 'application/json',
-        provider: 'gemini',
-        model: 'gemini-2.5-pro',
-        temperature: 0,
-        maxOutputTokens: 8192,
-        thinkingBudget: 1800,
-        createdAt: nowTime(),
-        updatedAt: nowTime(),
-        isActive: true
-      };
-      setConfigs([defaultConfig]);
-      loadConfig(defaultConfig);
-      localStorage.setItem('math_tutor_llm_configs', JSON.stringify([defaultConfig]));
-      localStorage.setItem('math_tutor_active_llm_config_id', defaultConfig.id);
+    // ✅ 자동 추가 로직 제거: 사용자가 삭제한 설정은 다시 추가하지 않음
+    // (기존: "지식요소 진단 통합형" 및 "기본 LLM 설정" 자동 생성)
+    
+    setConfigs(parsedConfigs);
+
+    // 활성 설정 로드
+    if (parsedConfigs.length > 0) {
+      if (activeConfigId) {
+        const activeConfig = parsedConfigs.find(c => c.id === activeConfigId);
+        if (activeConfig) {
+          loadConfig(activeConfig);
+          return;
+        }
+      }
+
+      const activeConfig = parsedConfigs.find(c => c.isActive) || parsedConfigs[0];
+      if (activeConfig) {
+        loadConfig(activeConfig);
+        localStorage.setItem('math_tutor_active_llm_config_id', activeConfig.id);
+      }
     }
   }, []);
 
@@ -411,6 +427,98 @@ const AIManagement = () => {
       localStorage.setItem('math_tutor_llm_configs', JSON.stringify(configs));
     }
   }, [configs]);
+
+  // ✅ 선택된 필드에 따라 inputSchema 생성
+  const updateInputSchemaFromFields = (fields: Set<string>) => {
+    const properties: Record<string, {
+      type: string;
+      description: string;
+      default?: string;
+      enum?: string[];
+      items?: {
+        type: string;
+        properties?: Record<string, unknown>;
+        required?: string[];
+      };
+    }> = {};
+    
+    if (fields.has('problem')) {
+      properties.problem = {
+        type: "string",
+        description: "문제 텍스트(이미지 문제면 간단 설명)"
+      };
+    }
+    if (fields.has('problemImage')) {
+      properties.problemImage = {
+        type: "string",
+        description: "문제 이미지 URL (Base64)"
+      };
+    }
+    if (fields.has('explanationText')) {
+      properties.explanation = {
+        type: "string",
+        description: "문제의 공식 해설 텍스트"
+      };
+    }
+    if (fields.has('explanationImage')) {
+      properties.explanationImage = {
+        type: "string",
+        description: "해설 이미지 URL (Base64)"
+      };
+    }
+    if (fields.has('userMessage')) {
+      properties.userMessage = {
+        type: "string",
+        description: "학생의 최신 입력(답변/질문/풀이 등)"
+      };
+    }
+    if (fields.has('context')) {
+      properties.context = {
+        type: "string",
+        description: "이전 대화 요약, 학습 스타일/오류 패턴 등",
+        default: ""
+      };
+    }
+    if (fields.has('knowledgeElements')) {
+      properties.knowledgeElements = {
+        type: "array",
+        description: "문제와 관련된 지식요소 목록",
+        items: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "지식요소 ID"
+            },
+            name: {
+              type: "string",
+              description: "지식요소 이름"
+            },
+            category: {
+              type: "string",
+              enum: ["concept", "principle", "procedure", "integration"],
+              description: "지식요소 구분 (개념/원리/절차/통합)"
+            },
+            cognitiveLevel: {
+              type: "string",
+              enum: ["remember", "understand", "apply", "analyze", "synthesize", "evaluate"],
+              description: "인지 수준 (기억/이해/적용/분석/종합/평가)"
+            }
+          },
+          required: ["id", "name", "category", "cognitiveLevel"]
+        }
+      };
+    }
+    
+    const newSchema = {
+      type: "object",
+      properties,
+      required: fields.has('userMessage') ? ["userMessage"] : [],
+      additionalProperties: false
+    };
+    
+    setInputSchema(JSON.stringify(newSchema, null, 2));
+  };
 
   const loadConfig = (config: LLMConfig) => {
     setSelectedConfig(config);
@@ -427,6 +535,23 @@ const AIManagement = () => {
     setTemperature(config.temperature);
     setMaxOutputTokens(config.maxOutputTokens);
     setThinkingBudget(config.thinkingBudget);
+    
+    // ✅ 입력 필드 선택 상태 로드
+    if (config.inputSchema?.properties) {
+      const fields = new Set<string>();
+      const props = config.inputSchema.properties as Record<string, unknown>;
+      if (props.problem) fields.add('problem');
+      if (props.problemImage) fields.add('problemImage');
+      if (props.explanation) fields.add('explanationText');
+      if (props.explanationImage) fields.add('explanationImage');
+      if (props.userMessage) fields.add('userMessage');
+      if (props.context) fields.add('context');
+      if (props.knowledgeElements) fields.add('knowledgeElements');
+      setSelectedInputFields(fields);
+    } else {
+      // 기본값: 모든 필드 선택
+      setSelectedInputFields(new Set(['problem', 'problemImage', 'explanationText', 'explanationImage', 'userMessage', 'context', 'knowledgeElements']));
+    }
   };
 
   const startAdding = () => {
@@ -436,7 +561,7 @@ const AIManagement = () => {
     setName('');
     setDescription('');
     setVersion('v1.0.0');
-    setSystemPrompt(SYSTEM_PROMPT_BASE);
+    setSystemPrompt(''); // ✅ 새 설정은 빈 값으로 시작 (사용자가 직접 입력)
     setUserPrompt('');
     setInputSchema(JSON.stringify(DEFAULT_INPUT_SCHEMA, null, 2));
     setOutputSchema(JSON.stringify(DEFAULT_RESPONSE_SCHEMA, null, 2));
@@ -505,7 +630,12 @@ const AIManagement = () => {
         setIsAdding(false);
         setIsEditing(false);
         
-        window.dispatchEvent(new CustomEvent('llmConfigUpdated', { detail: newConfig }));
+        // ✅ localStorage에 저장
+        localStorage.setItem('math_tutor_llm_configs', JSON.stringify(updatedConfigs));
+        console.log('💾 [Admin] New config saved to localStorage:', newConfig.name);
+        
+        // ✅ 이벤트 발행
+        window.dispatchEvent(new Event('llmConfigUpdated'));
       } else {
         const updatedConfig: LLMConfig = {
           ...selectedConfig,
@@ -530,7 +660,12 @@ const AIManagement = () => {
         setSelectedConfig(updatedConfig);
         setIsEditing(false);
         
-        window.dispatchEvent(new CustomEvent('llmConfigUpdated', { detail: updatedConfig }));
+        // ✅ localStorage에 저장
+        localStorage.setItem('math_tutor_llm_configs', JSON.stringify(updatedConfigs));
+        console.log('💾 [Admin] Config updated in localStorage:', updatedConfig.name);
+        
+        // ✅ 이벤트 발행
+        window.dispatchEvent(new Event('llmConfigUpdated'));
       }
 
       setSaveStatus('saved');
@@ -550,35 +685,43 @@ const AIManagement = () => {
     if (confirm('이 설정을 삭제하시겠습니까?')) {
       const updatedConfigs = configs.filter(c => c.id !== configId);
       setConfigs(updatedConfigs);
+      
+      // ✅ localStorage에 저장
+      localStorage.setItem('math_tutor_llm_configs', JSON.stringify(updatedConfigs));
+      console.log('💾 [Admin] Config deleted:', configId);
 
       const deletedConfig = configs.find(c => c.id === configId);
-      if (deletedConfig?.isActive && updatedConfigs.length > 0) {
-        activateConfig(updatedConfigs[0].id);
-      } else if (selectedConfig?.id === configId) {
+      // ✅ 여러 설정 활성화 가능하므로 삭제된 설정이 활성화되어 있어도 다른 활성 설정 유지
+      if (selectedConfig?.id === configId) {
         setSelectedConfig(updatedConfigs[0] || null);
         if (updatedConfigs[0]) {
           loadConfig(updatedConfigs[0]);
         }
       }
+      
+      // ✅ 이벤트 발행
+      window.dispatchEvent(new Event('llmConfigUpdated'));
     }
   };
 
-  const activateConfig = (configId: string) => {
-    const updatedConfigs = configs.map(c => ({
-      ...c,
-      isActive: c.id === configId
-    }));
+  // ✅ 여러 설정을 활성화/비활성화할 수 있도록 변경
+  const toggleActiveConfig = (configId: string) => {
+    const updatedConfigs = configs.map(c => 
+      c.id === configId 
+        ? { ...c, isActive: !c.isActive }  // 토글
+        : c  // 다른 설정은 그대로 유지
+    );
 
     setConfigs(updatedConfigs);
-    localStorage.setItem('math_tutor_active_llm_config_id', configId);
+    
+    // ✅ localStorage에 저장
+    localStorage.setItem('math_tutor_llm_configs', JSON.stringify(updatedConfigs));
+    
+    const toggledConfig = updatedConfigs.find(c => c.id === configId);
+    console.log(`💾 [Admin] Config ${toggledConfig?.isActive ? 'activated' : 'deactivated'}:`, configId);
 
-    const activatedConfig = updatedConfigs.find(c => c.id === configId);
-    if (activatedConfig) {
-      loadConfig(activatedConfig);
-      setIsEditing(false);
-      
-      window.dispatchEvent(new CustomEvent('llmConfigUpdated', { detail: activatedConfig }));
-    }
+    // ✅ 이벤트 발행
+    window.dispatchEvent(new Event('llmConfigUpdated'));
   };
 
   const selectConfig = (config: LLMConfig) => {
@@ -593,6 +736,7 @@ const AIManagement = () => {
       setIsAdding(false);
     }
   };
+
 
   const copySchema = (schema: string, type: 'input' | 'output') => {
     navigator.clipboard.writeText(schema);
@@ -668,17 +812,23 @@ const AIManagement = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mt-2">
-                      {!config.isActive && (
-                        <button
-                          onClick={(e) => {
+                      {/* ✅ 활성화/비활성화 토글 체크박스 */}
+                      <label className="flex items-center gap-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={config.isActive}
+                          onChange={(e) => {
                             e.stopPropagation();
-                            activateConfig(config.id);
+                            toggleActiveConfig(config.id);
                           }}
-                          className="text-xs text-green-600 hover:text-green-800 font-medium"
-                        >
-                          활성화
-                        </button>
-                      )}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span className={`text-xs font-medium ${
+                          config.isActive ? 'text-green-600' : 'text-gray-500'
+                        }`}>
+                          {config.isActive ? '활성화됨' : '비활성화'}
+                        </span>
+                      </label>
                       {configs.length > 1 && (
                         <button
                           onClick={(e) => {
@@ -825,15 +975,94 @@ const AIManagement = () => {
                       </div>
                     </div>
                     {showInputSchema && (
-                      <div className="p-4 border-t border-gray-200">
-                        <textarea
-                          value={inputSchema}
-                          onChange={(e) => setInputSchema(e.target.value)}
-                          disabled={!isAdding && !isEditing}
-                          className={`w-full h-64 p-4 border border-gray-300 rounded-lg font-mono text-xs resize-none ${
-                            !isAdding && !isEditing ? 'bg-gray-50 text-gray-600' : 'bg-white'
-                          }`}
-                        />
+                      <div className="p-4 border-t border-gray-200 space-y-4">
+                        {/* ✅ 입력 필드 선택 UI */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-3">
+                            포함할 입력 필드 선택
+                          </label>
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              { key: 'problem', label: '문제 (problem)', description: '문제 텍스트' },
+                              { key: 'problemImage', label: '문제 이미지 (problemImage)', description: '문제 이미지 URL' },
+                              { key: 'explanationText', label: '해설 텍스트 (explanation)', description: '해설 텍스트' },
+                              { key: 'explanationImage', label: '해설 이미지 (explanationImage)', description: '해설 이미지 URL' },
+                              { key: 'userMessage', label: '학생 메시지 (userMessage)', description: '학생 입력 (필수)' },
+                              { key: 'context', label: '컨텍스트 (context)', description: '이전 대화 요약' },
+                              { key: 'knowledgeElements', label: '지식요소 (knowledgeElements)', description: '지식요소 목록' },
+                            ].map((field) => (
+                              <label
+                                key={field.key}
+                                className={`flex items-start gap-2 p-3 border rounded-lg cursor-pointer transition-colors ${
+                                  selectedInputFields.has(field.key)
+                                    ? 'border-blue-500 bg-blue-50'
+                                    : 'border-gray-200 hover:border-gray-300'
+                                } ${!isAdding && !isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedInputFields.has(field.key)}
+                                  onChange={(e) => {
+                                    if (isAdding || isEditing) {
+                                      const newSet = new Set(selectedInputFields);
+                                      if (e.target.checked) {
+                                        newSet.add(field.key);
+                                      } else {
+                                        // userMessage는 필수이므로 제거 불가
+                                        if (field.key === 'userMessage') {
+                                          alert('학생 메시지(userMessage)는 필수 필드입니다.');
+                                          return;
+                                        }
+                                        newSet.delete(field.key);
+                                      }
+                                      setSelectedInputFields(newSet);
+                                      // ✅ inputSchema 자동 업데이트
+                                      updateInputSchemaFromFields(newSet);
+                                    }
+                                  }}
+                                  disabled={!isAdding && !isEditing || field.key === 'userMessage'}
+                                  className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                                />
+                                <div className="flex-1">
+                                  <div className="text-sm font-medium text-gray-900">{field.label}</div>
+                                  <div className="text-xs text-gray-500">{field.description}</div>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        
+                        {/* JSON 스키마 표시 (읽기 전용) */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            생성된 입력 스키마 (JSON)
+                          </label>
+                          <textarea
+                            value={inputSchema}
+                            onChange={(e) => {
+                              if (isAdding || isEditing) {
+                                setInputSchema(e.target.value);
+                                // JSON 파싱하여 선택된 필드 업데이트
+                                try {
+                                  const parsed = JSON.parse(e.target.value);
+                                  const fields = new Set<string>();
+                                  if (parsed.properties?.problem) fields.add('problem');
+                                  if (parsed.properties?.problemImage) fields.add('problemImage');
+                                  if (parsed.properties?.explanation) fields.add('explanationText');
+                                  if (parsed.properties?.explanationImage) fields.add('explanationImage');
+                                  if (parsed.properties?.userMessage) fields.add('userMessage');
+                                  if (parsed.properties?.context) fields.add('context');
+                                  if (parsed.properties?.knowledgeElements) fields.add('knowledgeElements');
+                                  setSelectedInputFields(fields);
+                                } catch {}
+                              }
+                            }}
+                            disabled={!isAdding && !isEditing}
+                            className={`w-full h-64 p-4 border border-gray-300 rounded-lg font-mono text-xs resize-none ${
+                              !isAdding && !isEditing ? 'bg-gray-50 text-gray-600' : 'bg-white'
+                            }`}
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

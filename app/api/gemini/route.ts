@@ -51,10 +51,33 @@ export async function POST(req: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Gemini API 오류:', response.status, errorText);
+      let errorText = '';
+      try {
+        errorText = await response.text();
+      } catch (e) {
+        errorText = '응답 본문을 읽을 수 없습니다.';
+      }
+      
+      console.error('Gemini API 오류:', {
+        status: response.status,
+        statusText: response.statusText,
+        errorText: errorText.substring(0, 500), // 처음 500자만 로깅
+      });
+      
+      // 에러 텍스트에서 JSON 파싱 시도
+      let errorDetails = errorText;
+      try {
+        const parsed = JSON.parse(errorText);
+        errorDetails = parsed.error?.message || parsed.error || JSON.stringify(parsed);
+      } catch {
+        // JSON이 아니면 원본 텍스트 사용
+      }
+      
       return NextResponse.json(
-        { error: `Gemini API 오류: ${response.status} ${response.statusText}`, details: errorText },
+        { 
+          error: `Gemini API 오류: ${response.status} ${response.statusText}`,
+          details: errorDetails.length > 500 ? errorDetails.substring(0, 500) + '...' : errorDetails
+        },
         { status: response.status }
       );
     }
@@ -63,8 +86,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data);
   } catch (error) {
     console.error('서버 오류:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
     return NextResponse.json(
-      { error: '서버 오류가 발생했습니다.', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: '서버 오류가 발생했습니다.', 
+        details: errorMessage,
+        stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
+      },
       { status: 500 }
     );
   }
