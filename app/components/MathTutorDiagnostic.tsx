@@ -523,7 +523,7 @@ interface GeminiArgs {
 
 const buildContext = (msgs: Message[]) =>
   msgs
-    .slice(-10)  // 최근 10개 메시지
+    .slice(-50)  // 최근 50개 메시지
     .map((m) => {
       if (m.type === 'student') return `학생: ${m.content}`;
       if (m.type === 'ai' && !m.isError) return `선생님: ${m.content}`;
@@ -1477,15 +1477,18 @@ const MathTutorDiagnostic: React.FC = () => {
                   onClick={() => setShowProblemDetail(true)}
                   title="클릭하여 상세 정보 보기"
                 >
-                  {/* ✅ 문제 이미지만 표시 */}
-                  {currentProblem.imageUrl && (
+                  {/* ✅ 문제 이미지 또는 텍스트 표시 */}
+                  {currentProblem.imageUrl ? (
                     <img
                       src={currentProblem.imageUrl}
                       alt="문제 이미지"
                       className="w-full max-h-[600px] object-contain border border-gray-200 rounded p-2"
                     />
-                  )}
-                  {!currentProblem.imageUrl && (
+                  ) : currentProblem.content && !currentProblem.content.startsWith('[이미지 문제:') ? (
+                    <div className="text-slate-900 whitespace-pre-wrap leading-relaxed text-base">
+                      {currentProblem.content}
+                    </div>
+                  ) : (
                     <div className="text-center text-slate-500 py-8">
                       문제 이미지가 없습니다.
                     </div>
