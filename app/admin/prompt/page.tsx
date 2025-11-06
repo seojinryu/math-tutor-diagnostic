@@ -22,9 +22,17 @@ export const DEFAULT_INPUT_SCHEMA = {
       type: "string",
       description: "문제 텍스트(이미지 문제면 간단 설명)"
     },
+    problemImage: {
+      type: "string",
+      description: "문제 이미지 (Base64 Data URL 형식, 이미지 문제인 경우)"
+    },
     explanation: {
       type: "string",
       description: "문제의 공식 해설 텍스트"
+    },
+    explanationImage: {
+      type: "string",
+      description: "해설 이미지 (Base64 Data URL 형식, 이미지 해설인 경우)"
     },
     userMessage: {
       type: "string",
@@ -212,6 +220,25 @@ const AIManagement = () => {
     if (storedConfigs) {
       try {
         parsedConfigs = JSON.parse(storedConfigs) as LLMConfig[];
+        
+        // ✅ 기존 기본 설정의 입력 스키마를 업데이트 (이미지 필드 추가)
+        const systemConfigIndex = parsedConfigs.findIndex(c => c.isSystem);
+        if (systemConfigIndex >= 0) {
+          const systemConfig = parsedConfigs[systemConfigIndex];
+          const currentSchema = systemConfig.inputSchema as typeof DEFAULT_INPUT_SCHEMA | undefined;
+          
+          // problemImage 또는 explanationImage가 없으면 스키마 업데이트
+          if (!currentSchema?.properties?.problemImage || !currentSchema?.properties?.explanationImage) {
+            parsedConfigs[systemConfigIndex] = {
+              ...systemConfig,
+              inputSchema: DEFAULT_INPUT_SCHEMA,
+              updatedAt: nowTime()
+            };
+            // LocalStorage에 즉시 저장
+            localStorage.setItem('math_tutor_llm_configs', JSON.stringify(parsedConfigs));
+            console.log('✅ 기본 LLM 설정의 입력 스키마가 업데이트되었습니다 (이미지 필드 추가)');
+          }
+        }
       } catch (e) {
         console.error('Failed to load configs:', e);
       }
@@ -275,38 +302,8 @@ const AIManagement = () => {
 
 }`;
 
-      const defaultInputSchema = {
-        type: "object" as const,
-        properties: {
-          problemImage: {
-            type: "string" as const,
-            description: "문제 이미지 URL (Base64)"
-          },
-          explanationImage: {
-            type: "string" as const,
-            description: "해설 이미지 URL (Base64)"
-          },
-          userMessage: {
-            type: "string" as const,
-            description: "학생의 최신 입력(답변/질문/풀이 등)"
-          },
-          context: {
-            type: "string" as const,
-            description: "이전 대화 요약, 학습 스타일/오류 패턴 등",
-            default: ""
-          },
-          problem: {
-            type: "string" as const,
-            description: "문제 텍스트(이미지 문제면 간단 설명)"
-          },
-          explanation: {
-            type: "string" as const,
-            description: "문제의 공식 해설 텍스트"
-          }
-        },
-        required: ["userMessage"] as const,
-        additionalProperties: false as const
-      };
+      // DEFAULT_INPUT_SCHEMA를 직접 사용하여 일관성 유지
+      const defaultInputSchema = DEFAULT_INPUT_SCHEMA;
 
       const defaultOutputSchema = {
         type: "OBJECT" as const,
