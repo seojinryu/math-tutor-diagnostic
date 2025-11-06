@@ -133,6 +133,8 @@ export interface LLMConfig {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  // 시스템 기본 설정 여부 (편집/삭제 불가)
+  isSystem?: boolean;
   
   // 스키마 정보
   inputSchema?: typeof DEFAULT_INPUT_SCHEMA;
@@ -220,51 +222,31 @@ const AIManagement = () => {
       const defaultSystemPrompt = `당신은 폴리아의 4단계 문제해결 접근법(1. 문제 이해하기, 2. 계획 세우기, 3. 계획 실행하기, 4. 되돌아보기)을 기반으로 학생의 수학 학습 상태를 진단하고 가르치는 교육용 AI입니다. 주어진 학생의 응답과 문제 및 해설 데이터를 분석하여 다음을 수행하세요: 
 
 ### **입력 데이터**
-
 - **문제**: {문제 텍스트, 예: "이차방정식 x^2 - 5x + 6 = 0의 근을 구하세요."}
-
 - **해설**: {해설 텍스트, 예: "(x-2)(x-3)=0이므로 근은 2, 3입니다."}
-
 - **학생 응답**: {학생의 답변, 풀이 과정, 또는 질문, 예: "근이 뭔지 모르겠어요", "x = 2, 4", 또는 "(x-2)(x-4) = 0"}
-
 - **컨텍스트** (선택 사항): {이전 대화 이력, 과거 오류 패턴}
 
 ### **임무**
 
 1. **학생 상태 진단**:
-
    - **문제 이해도**: 학생이 문제의 요구사항(예: 근 구하기)을 파악했는지? (낮음/중간/높음)
-
    - **개념 지식**: 관련 수학 개념(예: 이차방정식, 인수분해)을 이해하는 수준 (낮음/중간/높음)
-
    - **오류 패턴**: 계산 실수, 논리 오류, 개념 혼동, 접근법 선택 오류 등 식별
-
    - **자신감 수준**: 학생의 답변에서 드러나는 태도 (낮음: 좌절/망설임, 중간: 보통, 높음: 자신감)
 
 2. **폴리아 4단계 추천**:
-
    - 진단 결과에 따라 적합한 폴리아 단계(1~4) 추천
-
    - 이유 설명: 왜 해당 단계를 추천하는지 간단히 기술
 
 3. **다음 질문 제안**:
-
    - 진단결과 폴리아 단계에 적합한 단계별 후속 질문 또는 힌트 (예: "근이 뭔지 설명해볼래?", "계산을 다시 확인해볼까?")
-
-  
-
-   - 문제 풀이는 해설의 논리구조를 따르되 해설자료가 있음을 언급하지 않음
-
- 
-
+   - 문제 풀이는 해설의 논리구조를 따르되 해설자료가 있음을 언급하지 않음 
    - 어투는 친근한 대화체
-
    - 4단계(되돌아보기)는 AI가 직접 해당 문제의 포인트와 풀이과정에서 학생이 알아야할 핵심 포인트를 정리해주는 것으로 대체
 
 4. **피드백 완료 여부 판단**:
-
    - 학생이 정답 도출에 성공했는지 여부 판단 
-
    - "true" 또는 "false"로 응답
 
 ### **출력 형식**
@@ -364,7 +346,8 @@ const AIManagement = () => {
         thinkingBudget: 1200,
         createdAt: nowTime(),
         updatedAt: nowTime(),
-        isActive: true
+        isActive: true,
+        isSystem: true
       };
 
       parsedConfigs = [defaultConfig];
@@ -528,19 +511,51 @@ const AIManagement = () => {
     setIsAdding(true);
     setIsEditing(true);
     setSelectedConfig(null);
-    setName('');
-    setDescription('');
-    setVersion('v1.0.0');
-    setSystemPrompt(''); // ✅ 새 설정은 빈 값으로 시작 (사용자가 직접 입력)
-    setUserPrompt('');
-    setInputSchema(JSON.stringify(DEFAULT_INPUT_SCHEMA, null, 2));
-    setOutputSchema(JSON.stringify(DEFAULT_RESPONSE_SCHEMA, null, 2));
-    setResponseMimeType('application/json');
-    setProvider('gemini');
-    setModel('gemini-2.5-pro');
-    setTemperature(0);
-    setMaxOutputTokens(8192);
-    setThinkingBudget(1200);
+    // ✅ 기준 설정: 선택된 설정이 있으면 그걸, 없으면 첫 번째(기본) 설정을 복사
+    const source = selectedConfig || configs[0];
+    if (source) {
+      setName(`${source.name} (복사)`);
+      setDescription(source.description || '');
+      setVersion(source.version);
+      setSystemPrompt(source.systemPrompt);
+      setUserPrompt(source.userPrompt || '');
+      setInputSchema(JSON.stringify(source.inputSchema || DEFAULT_INPUT_SCHEMA, null, 2));
+      setOutputSchema(JSON.stringify(source.outputSchema || DEFAULT_RESPONSE_SCHEMA, null, 2));
+      setResponseMimeType(source.responseMimeType || 'application/json');
+      setProvider(source.provider);
+      setModel(source.model);
+      setTemperature(source.temperature);
+      setMaxOutputTokens(source.maxOutputTokens);
+      setThinkingBudget(source.thinkingBudget);
+      // ✅ 입력 필드 선택 상태 동기화
+      if (source.inputSchema?.properties) {
+        const fields = new Set<string>();
+        const props = source.inputSchema.properties as Record<string, unknown>;
+        if (props.problem) fields.add('problem');
+        if (props.problemImage) fields.add('problemImage');
+        if (props.explanation) fields.add('explanationText');
+        if (props.explanationImage) fields.add('explanationImage');
+        if (props.userMessage) fields.add('userMessage');
+        if (props.context) fields.add('context');
+        if (props.knowledgeElements) fields.add('knowledgeElements');
+        setSelectedInputFields(fields);
+      }
+    } else {
+      // ✅ fallback: 기본값
+      setName('');
+      setDescription('');
+      setVersion('v1.0.0');
+      setSystemPrompt('');
+      setUserPrompt('');
+      setInputSchema(JSON.stringify(DEFAULT_INPUT_SCHEMA, null, 2));
+      setOutputSchema(JSON.stringify(DEFAULT_RESPONSE_SCHEMA, null, 2));
+      setResponseMimeType('application/json');
+      setProvider('gemini');
+      setModel('gemini-2.5-pro');
+      setTemperature(0);
+      setMaxOutputTokens(8192);
+      setThinkingBudget(1200);
+    }
   };
 
   const cancelEditing = () => {
@@ -653,6 +668,12 @@ const AIManagement = () => {
     }
 
     if (confirm('이 설정을 삭제하시겠습니까?')) {
+      const target = configs.find(c => c.id === configId);
+      // ✅ 기본 설정은 삭제 불가
+      if (target?.isSystem) {
+        alert('기본 LLM 설정은 삭제할 수 없습니다.');
+        return;
+      }
       const updatedConfigs = configs.filter(c => c.id !== configId);
       setConfigs(updatedConfigs);
       
@@ -702,6 +723,11 @@ const AIManagement = () => {
 
   const startEditing = () => {
     if (selectedConfig) {
+      // ✅ 기본 설정은 편집 불가
+      if (selectedConfig.isSystem) {
+        alert('기본 LLM 설정은 편집할 수 없습니다. 복사하여 새 설정으로 수정하세요.');
+        return;
+      }
       setIsEditing(true);
       setIsAdding(false);
     }
@@ -730,7 +756,7 @@ const AIManagement = () => {
             <Plus className="w-4 h-4 mr-2" />
             새 설정 추가
           </button>
-          {!isAdding && selectedConfig && !isEditing && (
+          {!isAdding && selectedConfig && !isEditing && !selectedConfig.isSystem && (
           <button
               onClick={startEditing}
               className="inline-flex items-center px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -799,7 +825,7 @@ const AIManagement = () => {
                           {config.isActive ? '활성화됨' : '비활성화'}
                         </span>
                       </label>
-                      {configs.length > 1 && (
+                      {configs.length > 1 && !config.isSystem && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
