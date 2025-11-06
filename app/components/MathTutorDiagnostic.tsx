@@ -830,6 +830,17 @@ const MathTutorDiagnostic: React.FC = () => {
     error: configError,
     setActiveConfig: handleConfigChange
   } = useActiveLLMConfig();
+
+  // ✅ 최초 진입 시 활성 설정이 없으면 기본(첫 활성) 설정을 자동 선택
+  useEffect(() => {
+    if (isConfigLoading) return;
+    if (!activeConfig && activeLLMConfigs.length > 0) {
+      handleConfigChange(activeLLMConfigs[0].id);
+    } else if (!activeConfig && activeLLMConfigs.length === 0 && llmConfigs.length > 0) {
+      // 활성화된 설정이 없다면 첫 설정을 선택 (hook에서도 처리되지만 보강)
+      handleConfigChange(llmConfigs[0].id);
+    }
+  }, [isConfigLoading, activeConfig, activeLLMConfigs, llmConfigs, handleConfigChange]);
   
   const [newProblem, setNewProblem] = useState<Partial<Problem>>({
     title: '',
