@@ -697,21 +697,22 @@ const AIManagement = () => {
 
   // ✅ 여러 설정을 활성화/비활성화할 수 있도록 변경
   const toggleActiveConfig = (configId: string) => {
+    const target = configs.find(c => c.id === configId);
+    // ✅ 시스템 기본 설정은 비활성화 불가
+    if (target?.isSystem) {
+      alert('기본 LLM 설정은 항상 활성화 상태를 유지합니다.');
+      return;
+    }
     const updatedConfigs = configs.map(c => 
       c.id === configId 
-        ? { ...c, isActive: !c.isActive }  // 토글
-        : c  // 다른 설정은 그대로 유지
+        ? { ...c, isActive: !c.isActive }
+        : c
     );
 
     setConfigs(updatedConfigs);
-    
-    // ✅ localStorage에 저장
     localStorage.setItem('math_tutor_llm_configs', JSON.stringify(updatedConfigs));
-    
     const toggledConfig = updatedConfigs.find(c => c.id === configId);
     console.log(`💾 [Admin] Config ${toggledConfig?.isActive ? 'activated' : 'deactivated'}:`, configId);
-
-    // ✅ 이벤트 발행
     window.dispatchEvent(new Event('llmConfigUpdated'));
   };
 
@@ -817,6 +818,7 @@ const AIManagement = () => {
                             e.stopPropagation();
                             toggleActiveConfig(config.id);
                           }}
+                          disabled={config.isSystem}
                           className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                         />
                         <span className={`text-xs font-medium ${

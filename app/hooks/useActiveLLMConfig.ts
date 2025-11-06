@@ -339,7 +339,6 @@ export function useActiveLLMConfig(): UseActiveLLMConfigReturn {
 
 }`;
 
-        const anyActive = parsedConfigs.some(c => c.isActive);
         const systemDefault: LLMConfig = {
           id: uid(),
           name: '기본 LLM 설정',
@@ -357,10 +356,17 @@ export function useActiveLLMConfig(): UseActiveLLMConfigReturn {
           thinkingBudget: 1200,
           createdAt: nowTime(),
           updatedAt: nowTime(),
-          isActive: anyActive ? false : true, // 기존 활성 설정이 있으면 비활성, 없으면 활성
+          isActive: true, // ✅ 기본 설정은 항상 활성화
           isSystem: true,
         };
         parsedConfigs = [systemDefault, ...parsedConfigs];
+        localStorage.setItem('math_tutor_llm_configs', JSON.stringify(parsedConfigs));
+      }
+
+      // ✅ 2-2. 시스템 기본 설정이 존재하지만 비활성화되어 있다면 강제로 활성화
+      const sysIndex = parsedConfigs.findIndex(c => c.isSystem);
+      if (sysIndex >= 0 && !parsedConfigs[sysIndex].isActive) {
+        parsedConfigs[sysIndex] = { ...parsedConfigs[sysIndex], isActive: true } as LLMConfig;
         localStorage.setItem('math_tutor_llm_configs', JSON.stringify(parsedConfigs));
       }
 
